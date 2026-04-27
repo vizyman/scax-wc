@@ -1,0 +1,54 @@
+{
+  "name": "scax-wc",
+  "version": "0.1.0",
+  "description": "Lit web component using Three.js",
+  "type": "module",
+  "main": "./dist/scax-wc.cjs",
+  "module": "./dist/scax-wc.esm.js",
+  "types": "./dist/scax-wc.d.ts",
+  "unpkg": "./dist/scax-wc.umd.js",
+  "jsdelivr": "./dist/scax-wc.umd.js",
+  "exports": {
+    ".": {
+      "types": "./dist/scax-wc.d.ts",
+      "import": "./dist/scax-wc.esm.js",
+      "require": "./dist/scax-wc.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "build:esm": "rollup -c",
+    "dev": "vite",
+    "check": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "web-components",
+    "lit",
+    "threejs",
+    "typescript"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "lit": "^3.2.0",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-typescript": "^12.1.2",
+    "@types/three": "^0.175.0",
+    "prettier": "^3.3.3",
+    "rollup": "^4.52.4",
+    "rollup-plugin-dts": "^6.2.3",
+    "tslib": "^2.8.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}
