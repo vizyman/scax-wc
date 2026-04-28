@@ -9,6 +9,7 @@ const TAG = '[scax-wc]';
 
 type LensRenderConfig = NonNullable<SCAXEngineProps['lens']>[number] & {
   diameter?: number;
+  type?: 'lens' | 'cross-cylinder';
 };
 
 type ScaxRenderConfig = Omit<SCAXEngineProps, 'lens'> & {
@@ -70,6 +71,8 @@ type SurfaceLike = {
   name?: string;
   position?: { x?: number; y?: number; z?: number };
   tilt?: { x?: number; y?: number };
+  s?: number;
+  c?: number;
   ax?: number;
   n_before?: number;
   n_after?: number;
@@ -129,7 +132,11 @@ const COLOR_CORNEA_BASE_PRIMARY = 0x38bdf8;
 const COLOR_CORNEA_BASE_SECONDARY = 0xe879f9;
 const COLOR_LENS_PRIMARY = 0xa3e635;
 const COLOR_LENS_SECONDARY = 0xf97316;
+const COLOR_LENS_CROSS_PLUS_MARKER = 0xef4444;
+const COLOR_LENS_CROSS_MINUS_MARKER = 0xffffff;
+const COLOR_LENS_CROSS_BISECTOR = 0x000000;
 const CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM = -0.25;
+const LENS_MERIDIAN_ANTERIOR_OFFSET_MM = -0.2;
 
 type SturmInfoLike = {
   color?: number;
@@ -199,8 +206,10 @@ function createOrientedLineObject(
   return new THREE.Line(geometry, material);
 }
 
-function surfaceColor(type: string) {
-  if (type === 'spherical-image') return '#10b981';
+function surfaceColor(type: string, name?: string) {
+  const lowerName = String(name ?? '').toLowerCase();
+  if (lowerName.includes('cornea')) return '#f8fafc';
+  if (lowerName.includes('retina') || type === 'spherical-image') return '#fb923c';
   if (type === 'compound') return '#60a5fa';
   if (type === 'toric') return '#c084fc';
   if (type === 'aspherical') return '#22d3ee';
@@ -211,6 +220,39 @@ type MeshBufferData = {
   positions: Float32Array;
   indices: Uint32Array;
 };
+
+function mergeMeshBuffers(buffers: MeshBufferData[]): MeshBufferData | null {
+  if (!buffers.length) return null;
+  const totalPositions = buffers.reduce((sum, buffer) => sum + buffer.positions.length, 0);
+  const totalIndices = buffers.reduce((sum, buffer) => sum + buffer.indices.length, 0);
+  const positions = new Float32Array(totalPositions);
+  const indices = new Uint32Array(totalIndices);
+
+  let positionOffset = 0;
+  let indexOffset = 0;
+  let vertexOffset = 0;
+  for (const buffer of buffers) {
+    positions.set(buffer.positions, positionOffset);
+    for (let i = 0; i < buffer.indices.length; i += 1) {
+      indices[indexOffset + i] = buffer.indices[i] + vertexOffset;
+    }
+    positionOffset += buffer.positions.length;
+    indexOffset += buffer.indices.length;
+    vertexOffset += buffer.positions.length / 3;
+  }
+
+  return { positions, indices };
+}
+
+function reverseWinding(buffer: MeshBufferData): MeshBufferData {
+  const reversed = new Uint32Array(buffer.indices.length);
+  for (let i = 0; i < buffer.indices.length; i += 3) {
+    reversed[i] = buffer.indices[i];
+    reversed[i + 1] = buffer.indices[i + 2];
+    reversed[i + 2] = buffer.indices[i + 1];
+  }
+  return { positions: buffer.positions, indices: reversed };
+}
 
 function buildDiskMeshData(
   pointAt: (x: number, y: number) => [number, number, number],
@@ -458,6 +500,70 @@ function buildSurfacePointSampler(
   return null;
 }
 
+function buildClosedPairGeometry(
+  front: SurfaceLike,
+  back: SurfaceLike,
+  radius: number,
+): MeshBufferData | null {
+  const radialSegments = 24;
+  const angularSegments = 64;
+  const safeRadius = Math.max(0, radius);
+  if (!Number.isFinite(safeRadius) || safeRadius <= 0) return null;
+
+  const frontSampler = buildSurfacePointSampler(front);
+  const backSampler = buildSurfacePointSampler(back);
+  if (!frontSampler || !backSampler) return null;
+
+  const frontCap = buildDiskMeshData(
+    (x, y) => {
+      const p = frontSampler(x, y);
+      return [p.x, p.y, p.z];
+    },
+    safeRadius,
+    radialSegments,
+    angularSegments,
+  );
+  const backCap = reverseWinding(
+    buildDiskMeshData(
+      (x, y) => {
+        const p = backSampler(x, y);
+        return [p.x, p.y, p.z];
+      },
+      safeRadius,
+      radialSegments,
+      angularSegments,
+    ),
+  );
+
+  const sidePositions: number[] = [];
+  const sideIndices: number[] = [];
+  for (let seg = 0; seg < angularSegments; seg += 1) {
+    const theta = (2 * Math.PI * seg) / angularSegments;
+    const x = safeRadius * Math.cos(theta);
+    const y = safeRadius * Math.sin(theta);
+    const frontPoint = frontSampler(x, y);
+    const backPoint = backSampler(x, y);
+    sidePositions.push(frontPoint.x, frontPoint.y, frontPoint.z);
+    sidePositions.push(backPoint.x, backPoint.y, backPoint.z);
+  }
+
+  for (let seg = 0; seg < angularSegments; seg += 1) {
+    const next = (seg + 1) % angularSegments;
+    const f0 = seg * 2;
+    const b0 = seg * 2 + 1;
+    const f1 = next * 2;
+    const b1 = next * 2 + 1;
+    sideIndices.push(f0, b0, f1, f1, b0, b1);
+  }
+
+  const sideBuffer: MeshBufferData = {
+    positions: new Float32Array(sidePositions),
+    indices: new Uint32Array(sideIndices),
+  };
+
+  return mergeMeshBuffers([frontCap, backCap, sideBuffer]);
+}
+
 /** SCAX surface들을 three mesh로 변환하는 모듈 함수 */
 export function buildSurfaceMeshes(
   surfaces: SurfaceLike[],
@@ -465,19 +571,72 @@ export function buildSurfaceMeshes(
     resolveRadius?: (surface: SurfaceLike, index: number) => number | undefined;
   },
 ): THREE.Object3D[] {
-  return surfaces.flatMap((surface, index) => {
-    const type = String(surface.type ?? 'surface');
-    const name = String(surface.name ?? `${type}-${index}`);
-    const color = surfaceColor(type);
-    const resolvedRadius = options?.resolveRadius?.(surface, index);
-    const buffers = buildGeometryForSurface(
-      surface,
-      Number.isFinite(resolvedRadius ?? Number.NaN)
-        ? (resolvedRadius as number)
-        : estimateSurfaceRadius(surface),
+  const meshes: THREE.Object3D[] = [];
+  const consumed = new Set<number>();
+  const findPairIndex = (targetName: string) =>
+    surfaces.findIndex((surface, index) =>
+      !consumed.has(index) && String(surface?.name ?? '').toLowerCase() === targetName,
     );
 
-    return buffers.map((buffer, bufferIndex) => {
+  for (let index = 0; index < surfaces.length; index += 1) {
+    if (consumed.has(index)) continue;
+    const surface = surfaces[index];
+    const type = String(surface.type ?? 'surface');
+    const name = String(surface.name ?? `${type}-${index}`);
+    const color = surfaceColor(type, name);
+    const lowerName = name.toLowerCase();
+    const resolvedRadius = options?.resolveRadius?.(surface, index);
+    const baseRadius = Number.isFinite(resolvedRadius ?? Number.NaN)
+      ? (resolvedRadius as number)
+      : estimateSurfaceRadius(surface);
+
+    if (lowerName === 'cornea_anterior' || lowerName === 'lens_anterior') {
+      const pairName = lowerName.replace('_anterior', '_posterior');
+      const pairIndex = findPairIndex(pairName);
+      if (pairIndex >= 0) {
+        const pairSurface = surfaces[pairIndex];
+        const pairResolvedRadius = options?.resolveRadius?.(pairSurface, pairIndex);
+        const pairRadius = Number.isFinite(pairResolvedRadius ?? Number.NaN)
+          ? (pairResolvedRadius as number)
+          : estimateSurfaceRadius(pairSurface);
+        const closedBuffer = buildClosedPairGeometry(
+          surface,
+          pairSurface,
+          Math.max(baseRadius, pairRadius),
+        );
+        if (closedBuffer) {
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(closedBuffer.positions, 3));
+          geometry.setIndex(new THREE.BufferAttribute(closedBuffer.indices, 1));
+          geometry.computeVertexNormals();
+
+          const material = new THREE.MeshStandardMaterial({
+            color,
+            metalness: 0.05,
+            roughness: 0.7,
+            transparent: true,
+            opacity: 0.5,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.name = `${name}-closed`;
+          meshes.push(mesh);
+          consumed.add(index);
+          consumed.add(pairIndex);
+          continue;
+        }
+      }
+    }
+
+    const buffers = buildGeometryForSurface(
+      surface,
+      baseRadius,
+    );
+
+    for (let bufferIndex = 0; bufferIndex < buffers.length; bufferIndex += 1) {
+      const buffer = buffers[bufferIndex];
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(buffer.positions, 3));
       geometry.setIndex(new THREE.BufferAttribute(buffer.indices, 1));
@@ -495,9 +654,11 @@ export function buildSurfaceMeshes(
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `${name}-${bufferIndex}`;
-      return mesh;
-    });
-  });
+      meshes.push(mesh);
+    }
+  }
+
+  return meshes;
 }
 
 export function buildRayObjects(rays: unknown[]): THREE.Object3D[] {
@@ -761,7 +922,10 @@ export class ScaxWc extends LitElement {
     const lensSurfaces = Array.isArray(state.lens) ? state.lens : [];
     const eyeSurfaces = Array.isArray(state.surfaces) ? state.surfaces : [];
     const ordered = [...lensSurfaces, ...eyeSurfaces]
-      .filter((surface) => String(surface?.name ?? '').toLowerCase() !== 'pupil_stop')
+      .filter((surface) => {
+        const lowerName = String(surface?.name ?? '').toLowerCase();
+        return lowerName !== 'pupil_stop';
+      })
       .sort((a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z);
     const corneaSurface = eyeSurfaces.find(
       (surface) => String(surface?.name ?? '').toLowerCase() === 'eye_st',
@@ -818,8 +982,11 @@ export class ScaxWc extends LitElement {
     }
 
     const meridianObjects: THREE.Object3D[] = [];
-    for (const surface of lensSurfaces) {
+    for (let lensIndex = 0; lensIndex < lensSurfaces.length; lensIndex += 1) {
+      const surface = lensSurfaces[lensIndex];
       if (!surface) continue;
+      const lensConfig = configLenses[lensIndex] ?? null;
+      const lensType = String(lensConfig?.type ?? 'lens').toLowerCase();
       const parts =
         String(surface.type ?? '').toLowerCase() === 'compound'
           ? [surface.front].filter((part): part is SurfaceLike => Boolean(part))
@@ -827,8 +994,79 @@ export class ScaxWc extends LitElement {
       for (const part of parts) {
         const axisDeg = Number(part.ax ?? surface.ax ?? 0);
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
-        const major = this.createMeridianLine(part, axisDeg, halfLength, COLOR_LENS_PRIMARY);
-        const minor = this.createMeridianLine(part, axisDeg + 90, halfLength, COLOR_LENS_SECONDARY);
+        const weakMeridianPower = Number(lensConfig?.s ?? 0);
+        const strongMeridianPower = weakMeridianPower + Number(lensConfig?.c ?? 0);
+        const plusAxis = weakMeridianPower >= strongMeridianPower ? axisDeg : axisDeg + 90;
+        const minusAxis = weakMeridianPower < strongMeridianPower ? axisDeg : axisDeg + 90;
+
+        if (lensType === 'cross-cylinder') {
+          const plusLine = this.createMeridianLine(
+            part,
+            plusAxis,
+            halfLength,
+            COLOR_LENS_PRIMARY,
+            LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+          );
+          const minusLine = this.createMeridianLine(
+            part,
+            minusAxis,
+            halfLength,
+            COLOR_LENS_SECONDARY,
+            LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+          );
+          const bisectorA = this.createMeridianLine(
+            part,
+            plusAxis + 45,
+            halfLength,
+            COLOR_LENS_CROSS_BISECTOR,
+            LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+          );
+          const bisectorB = this.createMeridianLine(
+            part,
+            plusAxis + 135,
+            halfLength,
+            COLOR_LENS_CROSS_BISECTOR,
+            LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+          );
+          if (plusLine) meridianObjects.push(plusLine);
+          if (minusLine) meridianObjects.push(minusLine);
+          if (bisectorA) meridianObjects.push(bisectorA);
+          if (bisectorB) meridianObjects.push(bisectorB);
+          meridianObjects.push(
+            ...this.createMeridianEndpointMarkers(
+              part,
+              plusAxis,
+              halfLength,
+              COLOR_LENS_CROSS_PLUS_MARKER,
+              LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+            ),
+          );
+          meridianObjects.push(
+            ...this.createMeridianEndpointMarkers(
+              part,
+              minusAxis,
+              halfLength,
+              COLOR_LENS_CROSS_MINUS_MARKER,
+              LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+            ),
+          );
+          continue;
+        }
+
+        const major = this.createMeridianLine(
+          part,
+          axisDeg,
+          halfLength,
+          COLOR_LENS_PRIMARY,
+          LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
+        const minor = this.createMeridianLine(
+          part,
+          axisDeg + 90,
+          halfLength,
+          COLOR_LENS_SECONDARY,
+          LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
         if (major) meridianObjects.push(major);
         if (minor) meridianObjects.push(minor);
       }
@@ -929,8 +1167,74 @@ export class ScaxWc extends LitElement {
       color,
       transparent: true,
       opacity: 0.95,
+      depthTest: false,
+      depthWrite: false,
     });
-    return new THREE.Line(geometry, material);
+    const line = new THREE.Line(geometry, material);
+    line.renderOrder = 10;
+    return line;
+  }
+
+  private createMeridianEndpointMarkers(
+    surface: SurfaceLike,
+    axisDeg: number,
+    halfLength: number,
+    color: THREE.ColorRepresentation,
+    zOffsetMm = 0,
+  ): THREE.Object3D[] {
+    const sampler = buildSurfacePointSampler(surface);
+    if (!sampler) return [];
+    const axisRad = (axisDeg * Math.PI) / 180;
+    const c = Math.cos(axisRad);
+    const s = Math.sin(axisRad);
+    const endpoints = [
+      sampler(-c * halfLength, -s * halfLength),
+      sampler(c * halfLength, s * halfLength),
+    ];
+    const markerLiftMm = 0.16;
+    return endpoints.map((point, endpointIndex) => {
+      const sign = endpointIndex === 0 ? -1 : 1;
+      const normal = this.estimateSurfaceNormal(
+        surface,
+        sign * c * halfLength,
+        sign * s * halfLength,
+      );
+      if (normal) {
+        point.addScaledVector(normal, -markerLiftMm);
+      } else if (zOffsetMm !== 0) {
+        point.z += zOffsetMm;
+      }
+      const geometry = new THREE.SphereGeometry(0.22, 14, 12);
+      const material = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.98,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const marker = new THREE.Mesh(geometry, material);
+      marker.position.copy(point);
+      marker.renderOrder = 11;
+      return marker;
+    });
+  }
+
+  private estimateSurfaceNormal(
+    surface: SurfaceLike,
+    x: number,
+    y: number,
+  ): THREE.Vector3 | null {
+    const sampler = buildSurfacePointSampler(surface);
+    if (!sampler) return null;
+    const delta = 0.08;
+    const center = sampler(x, y);
+    const px = sampler(x + delta, y);
+    const py = sampler(x, y + delta);
+    const tx = px.sub(center);
+    const ty = py.sub(center);
+    const normal = tx.cross(ty);
+    if (normal.lengthSq() < 1e-12) return null;
+    return normal.normalize();
   }
 
   private fitCameraToObjects(objects: THREE.Object3D[]) {

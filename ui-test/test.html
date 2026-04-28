@@ -51,6 +51,7 @@
           eye: { s: -2, c: -1, ax: 180 },
           lens: [
             {
+              type: 'lens',
               s: -2,
               c: -1,
               ax: 180,
@@ -59,10 +60,11 @@
               diameter: 12,
             },
             {
+              type: 'cross-cylinder',
               s: -0.25,
               c: 0.5,
               ax: 45,
-              position: { x: 0, y: 0, z: VD + 2 },
+              position: { x: 0, y: 0, z: VD - 2 },
               tilt: { x: 0, y: 0 },
               diameter: 12,
             },
