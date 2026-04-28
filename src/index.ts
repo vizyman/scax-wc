@@ -16,6 +16,16 @@ type ScaxRenderConfig = Omit<SCAXEngineProps, 'lens'> & {
   lens?: LensRenderConfig[];
 };
 
+type CameraProjection = 'perspective' | 'orthogonal';
+
+type CameraRenderOptions = {
+  projection?: CameraProjection;
+};
+
+function isCameraProjection(value: unknown): value is CameraProjection {
+  return value === 'perspective' || value === 'orthogonal';
+}
+
 /** SCAXEngine.configure()와 동일한 기본값 */
 export function defaultScaxConfig(): ScaxRenderConfig {
   return {
@@ -63,6 +73,39 @@ export function parseConfigAttribute(raw: string | null): ScaxRenderConfig {
   } catch {
     console.warn(`${TAG} Failed to parse JSON "config", using defaults. Raw:`, raw);
     return defaultScaxConfig();
+  }
+}
+
+export function defaultCameraOptions(): CameraRenderOptions {
+  return {
+    projection: 'perspective',
+  };
+}
+
+export function mergeCameraOptions(
+  partial: Partial<CameraRenderOptions> | null | undefined,
+): CameraRenderOptions {
+  const base = defaultCameraOptions();
+  if (!partial) return base;
+  return {
+    projection: isCameraProjection(partial.projection) ? partial.projection : base.projection,
+  };
+}
+
+export function parseCameraAttribute(raw: string | null): CameraRenderOptions {
+  if (raw == null || raw.trim() === '') {
+    return defaultCameraOptions();
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      console.warn(`${TAG} "camera" must be a JSON object. Got:`, raw);
+      return defaultCameraOptions();
+    }
+    return mergeCameraOptions(parsed as Partial<CameraRenderOptions>);
+  } catch {
+    console.warn(`${TAG} Failed to parse JSON "camera", using defaults. Raw:`, raw);
+    return defaultCameraOptions();
   }
 }
 
@@ -130,8 +173,8 @@ const COLOR_CORNEA_PRIMARY = 0x10b981;
 const COLOR_CORNEA_SECONDARY = 0xf59e0b;
 const COLOR_CORNEA_BASE_PRIMARY = 0x38bdf8;
 const COLOR_CORNEA_BASE_SECONDARY = 0xe879f9;
-const COLOR_LENS_PRIMARY = 0xa3e635;
-const COLOR_LENS_SECONDARY = 0xf97316;
+const COLOR_LENS_PRIMARY = 0x14b8a6;
+const COLOR_LENS_SECONDARY = 0x8b5cf6;
 const COLOR_LENS_CROSS_PLUS_MARKER = 0xef4444;
 const COLOR_LENS_CROSS_MINUS_MARKER = 0xffffff;
 const COLOR_LENS_CROSS_BISECTOR = 0x000000;
@@ -737,6 +780,9 @@ export function buildSturmObjects(sturmInfo: SturmInfoLike[]): THREE.Object3D[] 
 
 @customElement('scax-wc')
 export class ScaxWc extends LitElement {
+  private static readonly CAMERA_BASE_POSITION = new THREE.Vector3(29, 13, -38);
+  private static readonly CAMERA_TARGET = new THREE.Vector3(0, 0, 2);
+
   static styles = css`
     :host {
       display: block;
@@ -777,8 +823,25 @@ export class ScaxWc extends LitElement {
   })
   config: ScaxRenderConfig = mergeScaxConfig({});
 
+  @property({
+    attribute: 'camera',
+    type: String,
+    converter: {
+      fromAttribute(value: string | null): CameraRenderOptions {
+        return parseCameraAttribute(value);
+      },
+      toAttribute(value: CameraRenderOptions): string {
+        return JSON.stringify(value);
+      },
+    },
+  })
+  camera: CameraRenderOptions = mergeCameraOptions({});
+
+  @property({ attribute: 'orbit-control-enabled', type: Boolean })
+  orbitControlEnabled = true;
+
   private scene?: THREE.Scene;
-  private camera?: THREE.PerspectiveCamera;
+  private viewCamera?: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private renderer?: THREE.WebGLRenderer;
   private controls?: OrbitControls;
   private animationId?: number;
@@ -807,19 +870,11 @@ export class ScaxWc extends LitElement {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0f172a');
 
-    this.camera = new THREE.PerspectiveCamera(55, root.clientWidth / root.clientHeight, 0.1, 2000);
-    this.camera.position.set(120, 120, -80);
-    this.camera.lookAt(0, 0, 0);
-
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(root.clientWidth, root.clientHeight);
     root.append(this.renderer.domElement);
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.set(0, 0, 0);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.update();
+    this.initializeCameraAndControls(root);
 
     const light = new THREE.DirectionalLight('#ffffff', 0.8);
     light.position.set(80, -60, 100);
@@ -835,6 +890,12 @@ export class ScaxWc extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>): void {
+    if (changed.has('camera')) {
+      this.rebuildCameraFromOptions();
+    }
+    if (changed.has('orbitControlEnabled')) {
+      this.applyOrbitControlState();
+    }
     if (!changed.has('config')) return;
     if (!this.scene) return;
 
@@ -866,9 +927,9 @@ export class ScaxWc extends LitElement {
   }
 
   private renderLoop = () => {
-    if (!this.scene || !this.camera || !this.renderer) return;
+    if (!this.scene || !this.viewCamera || !this.renderer) return;
     this.controls?.update();
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.render(this.scene, this.viewCamera);
     this.animationId = requestAnimationFrame(this.renderLoop);
   };
 
@@ -1238,7 +1299,7 @@ export class ScaxWc extends LitElement {
   }
 
   private fitCameraToObjects(objects: THREE.Object3D[]) {
-    if (!this.camera || !objects.length) return;
+    if (!this.viewCamera || !objects.length) return;
     const bounds = new THREE.Box3();
     for (const object of objects) {
       bounds.expandByObject(object);
@@ -1251,23 +1312,43 @@ export class ScaxWc extends LitElement {
     if (!Number.isFinite(maxSize) || maxSize <= 0) return;
 
     const currentTarget = this.controls?.target.clone() ?? new THREE.Vector3(0, 0, 0);
-    const viewDirection = this.camera.position.clone().sub(currentTarget);
+    const viewDirection = this.viewCamera.position.clone().sub(currentTarget);
     if (viewDirection.lengthSq() < 1e-12) {
       viewDirection.set(1, 1, 1);
     }
     viewDirection.normalize();
 
-    const verticalFovRad = THREE.MathUtils.degToRad(this.camera.fov);
-    const horizontalFovRad = 2 * Math.atan(Math.tan(verticalFovRad / 2) * this.camera.aspect);
-    const fitHeightDistance = maxSize / (2 * Math.tan(verticalFovRad / 2));
-    const fitWidthDistance = maxSize / (2 * Math.tan(horizontalFovRad / 2));
-    const fitOffset = 1.2;
-    const distance = Math.max(fitHeightDistance, fitWidthDistance) * fitOffset;
+    if (this.viewCamera instanceof THREE.PerspectiveCamera) {
+      const verticalFovRad = THREE.MathUtils.degToRad(this.viewCamera.fov);
+      const horizontalFovRad = 2 * Math.atan(Math.tan(verticalFovRad / 2) * this.viewCamera.aspect);
+      const fitHeightDistance = maxSize / (2 * Math.tan(verticalFovRad / 2));
+      const fitWidthDistance = maxSize / (2 * Math.tan(horizontalFovRad / 2));
+      const fitOffset = 1.2;
+      const distance = Math.max(fitHeightDistance, fitWidthDistance) * fitOffset;
 
-    this.camera.position.copy(center.clone().addScaledVector(viewDirection, distance));
-    this.camera.near = Math.max(0.01, distance / 100);
-    this.camera.far = Math.max(2000, distance * 100);
-    this.camera.updateProjectionMatrix();
+      this.viewCamera.position.copy(center.clone().addScaledVector(viewDirection, distance));
+      this.viewCamera.near = Math.max(0.01, distance / 100);
+      this.viewCamera.far = Math.max(2000, distance * 100);
+      this.viewCamera.updateProjectionMatrix();
+    } else {
+      const fitOffset = 1.4;
+      const halfHeight = (maxSize * fitOffset) / 2;
+      const aspect =
+        this.renderer && this.renderer.domElement.clientHeight > 0
+          ? this.renderer.domElement.clientWidth / this.renderer.domElement.clientHeight
+          : 1;
+      const halfWidth = halfHeight * aspect;
+      const distance = Math.max(size.x, size.y, size.z) * 2;
+
+      this.viewCamera.position.copy(center.clone().addScaledVector(viewDirection, distance));
+      this.viewCamera.left = -halfWidth;
+      this.viewCamera.right = halfWidth;
+      this.viewCamera.top = halfHeight;
+      this.viewCamera.bottom = -halfHeight;
+      this.viewCamera.near = Math.max(0.01, distance / 100);
+      this.viewCamera.far = Math.max(2000, distance * 100);
+      this.viewCamera.updateProjectionMatrix();
+    }
     this.controls?.target.copy(center);
     this.controls?.update();
   }
@@ -1348,12 +1429,86 @@ export class ScaxWc extends LitElement {
 
   private handleResize = () => {
     const root = this.renderRoot.querySelector('#canvas-root') as HTMLDivElement | null;
-    if (!root || !this.camera || !this.renderer) return;
+    if (!root || !this.viewCamera || !this.renderer) return;
 
-    this.camera.aspect = root.clientWidth / root.clientHeight;
-    this.camera.updateProjectionMatrix();
+    const aspect = root.clientWidth / root.clientHeight;
+    if (this.viewCamera instanceof THREE.PerspectiveCamera) {
+      this.viewCamera.aspect = aspect;
+      this.viewCamera.updateProjectionMatrix();
+    } else {
+      const currentHeight = this.viewCamera.top - this.viewCamera.bottom;
+      const halfHeight = currentHeight / 2;
+      const halfWidth = halfHeight * aspect;
+      this.viewCamera.left = -halfWidth;
+      this.viewCamera.right = halfWidth;
+      this.viewCamera.updateProjectionMatrix();
+    }
     this.renderer.setSize(root.clientWidth, root.clientHeight);
   };
+
+  private initializeCameraAndControls(root: HTMLDivElement): void {
+    if (!this.renderer) {
+      this.viewCamera = this.createCamera(root);
+      this.applyCameraPose();
+      return;
+    }
+    this.viewCamera = this.createCamera(root);
+    this.controls?.dispose();
+    this.controls = new OrbitControls(this.viewCamera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    // Avoid exact spherical pole singularities in OrbitControls.
+    this.controls.minPolarAngle = 0.001;
+    this.controls.maxPolarAngle = Math.PI - 0.001;
+    this.applyOrbitControlState();
+    this.applyCameraPose();
+    this.controls.update();
+  }
+
+  private createCamera(root: HTMLDivElement): THREE.PerspectiveCamera | THREE.OrthographicCamera {
+    const aspect = root.clientWidth / root.clientHeight;
+    const projection = this.camera.projection ?? 'perspective';
+    if (projection === 'orthogonal') {
+      const frustumHalfHeight = 16;
+      const frustumHalfWidth = frustumHalfHeight * aspect;
+      return new THREE.OrthographicCamera(
+        -frustumHalfWidth,
+        frustumHalfWidth,
+        frustumHalfHeight,
+        -frustumHalfHeight,
+        0.1,
+        2000,
+      );
+    }
+    return new THREE.PerspectiveCamera(55, aspect, 0.1, 2000);
+  }
+
+  private applyCameraPose(): void {
+    if (!this.viewCamera) return;
+    const target = ScaxWc.CAMERA_TARGET.clone();
+    const position = ScaxWc.CAMERA_BASE_POSITION.clone();
+    this.viewCamera.position.copy(position);
+    this.viewCamera.up.set(0, 1, 0);
+    this.viewCamera.lookAt(target);
+    this.viewCamera.updateProjectionMatrix();
+    this.controls?.target.copy(target);
+  }
+
+  private rebuildCameraFromOptions(): void {
+    const root = this.renderRoot.querySelector('#canvas-root') as HTMLDivElement | null;
+    if (!root) return;
+    this.initializeCameraAndControls(root);
+  }
+
+  private applyOrbitControlState(): void {
+    if (!this.controls) return;
+    const enabled = this.orbitControlEnabled;
+    this.controls.enabled = enabled;
+    this.controls.enableZoom = enabled;
+    this.controls.enablePan = enabled;
+    this.controls.enableRotate = enabled;
+  }
+
 }
 
 declare global {

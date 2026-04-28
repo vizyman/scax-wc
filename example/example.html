@@ -46,6 +46,12 @@
       const VD = -18;
       const demo = document.getElementById('demo');
       if (demo) {
+        // camera attribute/property example
+        // projection: perspective | orthogonal
+        demo.camera = {
+          projection: 'orthogonal',
+        };
+
         demo.config = {
           eyeModel: 'navarro',
           eye: { s: -2, c: -1, ax: 180 },
@@ -87,6 +93,14 @@
           // },
           pupil_type: 'neutral',
         };
+
+        // quick camera switch demo
+        // setTimeout(() => {
+        //   demo.camera = { projection: 'orthogonal' };
+        // }, 1500);
+        // setTimeout(() => {
+        //   demo.camera = { projection: 'perspective' };
+        // }, 3000);
       }
     </script>
   </body>
