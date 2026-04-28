@@ -63,8 +63,20 @@ export default class STSurface extends Surface {
     this.n_before = normalizeRefractiveIndexSpec(n_before);
     this.n = normalizeRefractiveIndexSpec(n);
     this.n_after = normalizeRefractiveIndexSpec(n_after);
-    this.frontRadiusMm = this.radiusFromPower(this.s, this.refractiveIndexAtD(this.n_before), this.refractiveIndexAtD(this.n));
-    this.backRadiusPerpMm = this.radiusFromPower(this.c, this.refractiveIndexAtD(this.n), this.refractiveIndexAtD(this.n_after));
+    const hasBack = Math.abs(this.c) >= ST_POWER_EPS_D;
+    // Radius must be computed with the same media pair that each sub-surface actually uses.
+    // - back (toric): n_before -> n
+    // - front (spherical): n -> n_after when back exists, else n_before -> n
+    this.backRadiusPerpMm = this.radiusFromPower(
+      this.c,
+      this.refractiveIndexAtD(this.n_before),
+      this.refractiveIndexAtD(this.n),
+    );
+    this.frontRadiusMm = this.radiusFromPower(
+      this.s,
+      hasBack ? this.refractiveIndexAtD(this.n) : this.refractiveIndexAtD(this.n_before),
+      hasBack ? this.refractiveIndexAtD(this.n_after) : this.refractiveIndexAtD(this.n),
+    );
     const requestedThickness = Math.max(0, thickness);
     this.thickness = requestedThickness === 0
       ? this.optimizeThickness(0)

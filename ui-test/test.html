@@ -50,23 +50,39 @@
           eyeModel: 'navarro',
           eye: { s: -2, c: -1, ax: 180 },
           lens: [
-            { s: -10, c: -2, ax: 45, position: { x: 0, y: 0, z: VD }, tilt: { x: 0, y: 0 } },
-            // {
-            //   s: -0.25,
-            //   c: 0.5,
-            //   ax: 180,
-            //   position: { x: 0, y: 0, z: VD + 2 },
-            //   tilt: { x: 0, y: 0 },
-            // },
+            {
+              s: -2,
+              c: -1,
+              ax: 180,
+              position: { x: 0, y: 0, z: VD },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            },
+            {
+              s: -0.25,
+              c: 0.5,
+              ax: 45,
+              position: { x: 0, y: 0, z: VD + 2 },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            },
           ],
           light_source: {
-            type: 'grid',
+            type: 'grid_rg',
             width: 0.5,
             height: 0.5,
             division: 5,
             z: -50,
             vergence: 0,
           },
+          // {
+          //   type: 'grid',
+          //   width: 0.5,
+          //   height: 0.5,
+          //   division: 5,
+          //   z: -50,
+          //   vergence: 0,
+          // },
           pupil_type: 'neutral',
         };
       }

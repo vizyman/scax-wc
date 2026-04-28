@@ -7,8 +7,16 @@ import SCAXEngine from './scax-engine/scax-engine';
 
 const TAG = '[scax-wc]';
 
+type LensRenderConfig = NonNullable<SCAXEngineProps['lens']>[number] & {
+  diameter?: number;
+};
+
+type ScaxRenderConfig = Omit<SCAXEngineProps, 'lens'> & {
+  lens?: LensRenderConfig[];
+};
+
 /** SCAXEngine.configure()와 동일한 기본값 */
-export function defaultScaxConfig(): SCAXEngineProps {
+export function defaultScaxConfig(): ScaxRenderConfig {
   return {
     eyeModel: 'gullstrand',
     eye: { s: 0, c: 0, ax: 0 },
@@ -26,8 +34,8 @@ export function defaultScaxConfig(): SCAXEngineProps {
 }
 /** 얕은 병합: 최상위만 덮어쓰고, eye는 필드 단위 병합 */
 export function mergeScaxConfig(
-  partial: Partial<SCAXEngineProps> | null | undefined,
-): SCAXEngineProps {
+  partial: Partial<ScaxRenderConfig> | null | undefined,
+): ScaxRenderConfig {
   const base = defaultScaxConfig();
   if (!partial) return base;
   return {
@@ -40,7 +48,7 @@ export function mergeScaxConfig(
     eyeModel: partial.eyeModel ?? base.eyeModel,
   };
 }
-export function parseConfigAttribute(raw: string | null): SCAXEngineProps {
+export function parseConfigAttribute(raw: string | null): ScaxRenderConfig {
   if (raw == null || raw.trim() === '') {
     return defaultScaxConfig();
   }
@@ -50,7 +58,7 @@ export function parseConfigAttribute(raw: string | null): SCAXEngineProps {
       console.warn(`${TAG} "config" must be a JSON object. Got:`, raw);
       return defaultScaxConfig();
     }
-    return mergeScaxConfig(parsed as Partial<SCAXEngineProps>);
+    return mergeScaxConfig(parsed as Partial<ScaxRenderConfig>);
   } catch {
     console.warn(`${TAG} Failed to parse JSON "config", using defaults. Raw:`, raw);
     return defaultScaxConfig();
@@ -161,16 +169,6 @@ function toFinitePoint(pointLike: unknown): THREE.Vector3 | null {
 function isFiniteVector3(point: THREE.Vector3 | undefined): point is THREE.Vector3 {
   if (!point) return false;
   return Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z);
-}
-
-function toFixedOrNa(value: unknown, digits: number): string {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(digits) : 'NaN';
-}
-
-function toExponentialOrNa(value: unknown, digits: number): string {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toExponential(digits) : 'NaN';
 }
 
 function normalizeAxis180(angleDeg: number): number {
@@ -285,7 +283,12 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
     const parts = [surface.front, surface.back].filter((part): part is SurfaceLike =>
       Boolean(part),
     );
-    return parts.flatMap((part) => buildGeometryForSurface(part, estimateSurfaceRadius(part)));
+    return parts.flatMap((part) =>
+      buildGeometryForSurface(
+        part,
+        Number.isFinite(radius ?? Number.NaN) ? (radius as number) : estimateSurfaceRadius(part),
+      ),
+    );
   }
 
   if (type === 'paraxial') {
@@ -455,194 +458,24 @@ function buildSurfacePointSampler(
   return null;
 }
 
-function drawAffineGrid(
-  canvasCtx: CanvasRenderingContext2D,
-  affineResult: AffineResultLike | null,
-  affinePairs: AffinePair[],
-): void {
-  const width = canvasCtx.canvas.width;
-  const height = canvasCtx.canvas.height;
-  canvasCtx.clearRect(0, 0, width, height);
-  canvasCtx.fillStyle = '#020617';
-  canvasCtx.fillRect(0, 0, width, height);
-
-  if (!affineResult || affinePairs.length < 4) {
-    canvasCtx.fillStyle = '#94a3b8';
-    canvasCtx.font = '12px Arial';
-    canvasCtx.fillText('Affine unavailable (need >= 4 pairs)', 12, 24);
-    return;
-  }
-
-  const margin = 18;
-  const points = affinePairs
-    .flatMap((pair) => [
-      { x: Number(pair.sx), y: Number(pair.sy) },
-      { x: Number(pair.tx), y: Number(pair.ty) },
-    ])
-    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-  if (!points.length) return;
-
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  for (const p of points) {
-    minX = Math.min(minX, p.x);
-    maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, p.y);
-    maxY = Math.max(maxY, p.y);
-  }
-
-  const spanX = Math.max(1e-6, maxX - minX);
-  const spanY = Math.max(1e-6, maxY - minY);
-  const scale = Math.min((width - 2 * margin) / spanX, (height - 2 * margin) / spanY);
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const ox = width / 2;
-  const oy = height / 2;
-
-  const toCanvas = (x: number, y: number) => ({
-    x: ox + (x - cx) * scale,
-    y: oy - (y - cy) * scale,
-  });
-  const affineMap = (x: number, y: number) => ({
-    x: affineResult.a * x + affineResult.b * y + affineResult.c,
-    y: affineResult.d * x + affineResult.e * y + affineResult.f,
-  });
-
-  canvasCtx.strokeStyle = '#1e293b';
-  canvasCtx.lineWidth = 1;
-  canvasCtx.beginPath();
-  canvasCtx.moveTo(0, oy);
-  canvasCtx.lineTo(width, oy);
-  canvasCtx.moveTo(ox, 0);
-  canvasCtx.lineTo(ox, height);
-  canvasCtx.stroke();
-
-  const gridStep = Math.max(spanX, spanY) / 6;
-  const gridExtent = Math.max(spanX, spanY) * 0.6;
-
-  canvasCtx.strokeStyle = '#22d3ee';
-  for (let i = -3; i <= 3; i += 1) {
-    const p0 = toCanvas(i * gridStep, -gridExtent);
-    const p1 = toCanvas(i * gridStep, gridExtent);
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(p0.x, p0.y);
-    canvasCtx.lineTo(p1.x, p1.y);
-    canvasCtx.stroke();
-
-    const q0 = toCanvas(-gridExtent, i * gridStep);
-    const q1 = toCanvas(gridExtent, i * gridStep);
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(q0.x, q0.y);
-    canvasCtx.lineTo(q1.x, q1.y);
-    canvasCtx.stroke();
-  }
-
-  canvasCtx.strokeStyle = '#f59e0b';
-  canvasCtx.lineWidth = 1.6;
-  for (let i = -3; i <= 3; i += 1) {
-    let started = false;
-    canvasCtx.beginPath();
-    for (let t = -30; t <= 30; t += 1) {
-      const s = (t / 30) * gridExtent;
-      const m = affineMap(i * gridStep, s);
-      const c = toCanvas(m.x, m.y);
-      if (!started) {
-        canvasCtx.moveTo(c.x, c.y);
-        started = true;
-      } else {
-        canvasCtx.lineTo(c.x, c.y);
-      }
-    }
-    canvasCtx.stroke();
-
-    started = false;
-    canvasCtx.beginPath();
-    for (let t = -30; t <= 30; t += 1) {
-      const s = (t / 30) * gridExtent;
-      const m = affineMap(s, i * gridStep);
-      const c = toCanvas(m.x, m.y);
-      if (!started) {
-        canvasCtx.moveTo(c.x, c.y);
-        started = true;
-      } else {
-        canvasCtx.lineTo(c.x, c.y);
-      }
-    }
-    canvasCtx.stroke();
-  }
-
-  canvasCtx.strokeStyle = '#ef4444';
-  canvasCtx.lineWidth = 1;
-  for (const pair of affinePairs) {
-    const s = toCanvas(Number(pair.sx), Number(pair.sy));
-    const t = toCanvas(Number(pair.tx), Number(pair.ty));
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(s.x, s.y);
-    canvasCtx.lineTo(t.x, t.y);
-    canvasCtx.stroke();
-  }
-}
-
-function flattenTraceSurfaces(
-  surfaces: SurfaceLike[],
-): Array<{ surface: SurfaceLike; name: string }> {
-  const list: Array<{ surface: SurfaceLike; name: string }> = [];
-  for (let index = 0; index < surfaces.length; index += 1) {
-    const surface = surfaces[index];
-    if (!surface) continue;
-    const name = String(surface.name ?? `surface_${index}`);
-    if (String(surface.type ?? '').toLowerCase() === 'compound') {
-      if (surface.back) list.push({ surface: surface.back, name: `${name}_back` });
-      if (surface.front) list.push({ surface: surface.front, name: `${name}_front` });
-    } else {
-      list.push({ surface, name });
-    }
-  }
-  return list;
-}
-
-function classifyFailure(surface: SurfaceLike, ray: RayLike): 'incident' | 'tir' | 'unknown' {
-  if (typeof surface.incident !== 'function') return 'unknown';
-  const hitPoint = surface.incident(ray);
-  if (!hitPoint) return 'incident';
-
-  const type = String(surface.type ?? '').toLowerCase();
-  const nBefore = Number(surface.n_before);
-  const nAfter = Number(surface.n_after);
-  if (!Number.isFinite(nBefore) || !Number.isFinite(nAfter) || nAfter === 0) return 'unknown';
-
-  if (type === 'spherical' && Number.isFinite(Number(surface.r))) {
-    const r = Number(surface.r);
-    const pos = readSurfacePosition(surface);
-    const incidentDir = ray.getDirection?.()?.clone().normalize();
-    if (!incidentDir) return 'unknown';
-    let normal: THREE.Vector3;
-    if (!Number.isFinite(r) || Math.abs(r) > 1e12) {
-      normal = new THREE.Vector3(0, 0, 1);
-    } else {
-      const center = new THREE.Vector3(pos.x, pos.y, pos.z + r);
-      normal =
-        r < 0 ? hitPoint.clone().sub(center).normalize() : center.clone().sub(hitPoint).normalize();
-    }
-    if (normal.dot(incidentDir) < 0) normal.multiplyScalar(-1);
-    const cos1 = Math.max(-1, Math.min(1, normal.dot(incidentDir)));
-    const sin1Sq = Math.max(0, 1 - cos1 * cos1);
-    const sin2 = (nBefore / nAfter) * Math.sqrt(sin1Sq);
-    if (sin2 > 1 + 1e-10) return 'tir';
-  }
-
-  return 'unknown';
-}
-
 /** SCAX surface들을 three mesh로 변환하는 모듈 함수 */
-export function buildSurfaceMeshes(surfaces: SurfaceLike[]): THREE.Object3D[] {
+export function buildSurfaceMeshes(
+  surfaces: SurfaceLike[],
+  options?: {
+    resolveRadius?: (surface: SurfaceLike, index: number) => number | undefined;
+  },
+): THREE.Object3D[] {
   return surfaces.flatMap((surface, index) => {
     const type = String(surface.type ?? 'surface');
     const name = String(surface.name ?? `${type}-${index}`);
     const color = surfaceColor(type);
-    const buffers = buildGeometryForSurface(surface, estimateSurfaceRadius(surface));
+    const resolvedRadius = options?.resolveRadius?.(surface, index);
+    const buffers = buildGeometryForSurface(
+      surface,
+      Number.isFinite(resolvedRadius ?? Number.NaN)
+        ? (resolvedRadius as number)
+        : estimateSurfaceRadius(surface),
+    );
 
     return buffers.map((buffer, bufferIndex) => {
       const geometry = new THREE.BufferGeometry();
@@ -761,36 +594,6 @@ export class ScaxWc extends LitElement {
       height: 100%;
     }
 
-    #affine-panel {
-      position: absolute;
-      left: 12px;
-      bottom: 12px;
-      z-index: 20;
-      background: rgb(17 24 39 / 85%);
-      border: 1px solid #3b82f6;
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 12px;
-      line-height: 1.4;
-      max-width: 420px;
-      white-space: pre-line;
-      color: #e5e7eb;
-    }
-
-    #affine-title {
-      font-weight: 700;
-      margin-bottom: 6px;
-    }
-
-    #affine-canvas {
-      display: block;
-      width: 280px;
-      height: 280px;
-      border: 1px solid #334155;
-      border-radius: 6px;
-      background: #020617;
-      margin-bottom: 8px;
-    }
   `;
 
   /**
@@ -801,20 +604,17 @@ export class ScaxWc extends LitElement {
     attribute: 'config',
     type: String,
     converter: {
-      fromAttribute(value: string | null): SCAXEngineProps {
+      fromAttribute(value: string | null): ScaxRenderConfig {
         return parseConfigAttribute(value);
       },
-      toAttribute(value: SCAXEngineProps): string {
+      toAttribute(value: ScaxRenderConfig): string {
         return JSON.stringify(value);
       },
     },
     /** 객체 비교 대신 매번 갱신하려면 주석 해제 */
     // hasChanged: () => true,
   })
-  config: SCAXEngineProps = mergeScaxConfig({});
-
-  @property({ attribute: 'show-distortion', type: Boolean })
-  showDistortion = false;
+  config: ScaxRenderConfig = mergeScaxConfig({});
 
   private scene?: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
@@ -828,18 +628,13 @@ export class ScaxWc extends LitElement {
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
   private hasInitialCameraFit = false;
-  private hudDebugText = '';
-  private affineMetaEl?: HTMLDivElement;
-  private affineCtx?: CanvasRenderingContext2D;
+  private lastSimulationResult: unknown = null;
+  private lastSturmResult: unknown = null;
+  private lastAffineResult: AffineResultLike | null = null;
 
   render() {
     return html`
       <div id="canvas-root">
-        <div id="affine-panel" style=${this.showDistortion ? '' : 'display:none;'}>
-          <div id="affine-title">Affine Distortion</div>
-          <canvas id="affine-canvas" width="280" height="280"></canvas>
-          <div id="affine-meta">Loading...</div>
-        </div>
       </div>
     `;
   }
@@ -871,13 +666,6 @@ export class ScaxWc extends LitElement {
 
     const ambient = new THREE.AmbientLight('#ffffff', 0.7);
     this.scene.add(ambient);
-    this.affineMetaEl =
-      (this.renderRoot.querySelector('#affine-meta') as HTMLDivElement | null) ?? undefined;
-    const affineCanvas = this.renderRoot.querySelector(
-      '#affine-canvas',
-    ) as HTMLCanvasElement | null;
-    this.affineCtx = affineCanvas?.getContext('2d') ?? undefined;
-
     this.engine = new SCAXEngine(this.config);
     this.simulateAndRebuild();
 
@@ -929,16 +717,31 @@ export class ScaxWc extends LitElement {
   private simulateAndRebuild() {
     if (!this.engine) return;
     const simulationResult = this.engine.simulate();
+    this.lastSimulationResult = simulationResult;
     const tracedRays = Array.isArray(simulationResult?.traced_rays)
       ? simulationResult.traced_rays
       : [];
     const sturmResult = this.engine.sturmCalculation(tracedRays);
+    this.lastSturmResult = sturmResult;
     const sturmInfo = Array.isArray((sturmResult as { sturm_info?: unknown[] } | null)?.sturm_info)
       ? ((sturmResult as { sturm_info?: unknown[] }).sturm_info as SturmInfoLike[])
       : [];
+    this.lastAffineResult = this.calculateAffineResult(tracedRays);
     const state = this.engine as unknown as EngineStateLike;
     const sourceRays = state.light_source?.emitRays?.() ?? [];
     this.rebuildSceneMeshes(tracedRays, sourceRays, sturmInfo);
+  }
+
+  public getSimulateResult<T = unknown>(): T | null {
+    return (this.lastSimulationResult as T | null) ?? null;
+  }
+
+  public getSturmResult<T = unknown>(): T | null {
+    return (this.lastSturmResult as T | null) ?? null;
+  }
+
+  public getAffineResult(): AffineResultLike | null {
+    return this.lastAffineResult;
   }
 
   private rebuildSceneMeshes(
@@ -979,7 +782,18 @@ export class ScaxWc extends LitElement {
       ? normalizeAxis180(inducedAxisFromSturm + 90)
       : normalizeAxis180(baseCorneaAxis);
 
-    this.surfaceMeshes = buildSurfaceMeshes(ordered);
+    const lensRadiusBySurface = new Map<SurfaceLike, number>();
+    const configLenses = Array.isArray(this.config?.lens) ? this.config.lens : [];
+    for (let i = 0; i < lensSurfaces.length; i += 1) {
+      const lensSurface = lensSurfaces[i];
+      const lensDiameter = Number(configLenses[i]?.diameter);
+      if (!Number.isFinite(lensDiameter) || lensDiameter <= 0) continue;
+      lensRadiusBySurface.set(lensSurface, lensDiameter / 2);
+    }
+
+    this.surfaceMeshes = buildSurfaceMeshes(ordered, {
+      resolveRadius: (surface) => lensRadiusBySurface.get(surface),
+    });
     for (const mesh of this.surfaceMeshes) {
       this.scene.add(mesh);
     }
@@ -1062,116 +876,34 @@ export class ScaxWc extends LitElement {
     for (const line of this.meridianObjects) {
       this.scene.add(line);
     }
+  }
 
-    if (this.showDistortion) {
-      const affinePairs: AffinePair[] = tracedRays
-        .map((ray) => {
-          const points = getRayPoints(ray);
-          if (!Array.isArray(points) || points.length < 2) return null;
-          const src = points[0];
-          const dst = points[points.length - 1];
-          if (!src || !dst) return null;
-          const sx = Number(src.x);
-          const sy = Number(src.y);
-          const tx = Number(dst.x);
-          const ty = Number(dst.y);
-          if (
-            !Number.isFinite(sx) ||
-            !Number.isFinite(sy) ||
-            !Number.isFinite(tx) ||
-            !Number.isFinite(ty)
-          )
-            return null;
-          return { sx, sy, tx, ty };
-        })
-        .filter((pair): pair is AffinePair => pair !== null);
+  private calculateAffineResult(tracedRays: unknown[]): AffineResultLike | null {
+    if (!this.engine) return null;
+    const affinePairs: AffinePair[] = tracedRays
+      .map((ray) => {
+        const points = getRayPoints(ray);
+        if (!Array.isArray(points) || points.length < 2) return null;
+        const src = points[0];
+        const dst = points[points.length - 1];
+        if (!src || !dst) return null;
+        const sx = Number(src.x);
+        const sy = Number(src.y);
+        const tx = Number(dst.x);
+        const ty = Number(dst.y);
+        if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(tx) || !Number.isFinite(ty))
+          return null;
+        return { sx, sy, tx, ty };
+      })
+      .filter((pair): pair is AffinePair => pair !== null);
 
-      const affineResult =
-        (
-          this.engine as unknown as {
-            estimateAffineDistortion?: (pairs: AffinePair[]) => AffineResultLike | null;
-          }
-        ).estimateAffineDistortion?.(affinePairs) ?? null;
-      const maxResidual =
-        Math.max(
-          0,
-          ...(Array.isArray(affineResult?.residuals)
-            ? affineResult.residuals.map((residual) => Number(residual?.magnitude || 0))
-            : [0]),
-        ) || 0;
-
-      if (this.affineMetaEl) {
-        if (!affineResult) {
-          this.affineMetaEl.textContent = `status: unavailable\npairs: ${affinePairs.length} (need >= 4)`;
-        } else {
-          this.affineMetaEl.textContent =
-            `pairs: ${affineResult.count}\n` +
-            `[x'; y'] = [[a b c], [d e f]] [x y 1]^T\n` +
-            `a=${toFixedOrNa(affineResult.a, 6)}, b=${toFixedOrNa(affineResult.b, 6)}, c=${toFixedOrNa(affineResult.c, 6)}\n` +
-            `d=${toFixedOrNa(affineResult.d, 6)}, e=${toFixedOrNa(affineResult.e, 6)}, f=${toFixedOrNa(affineResult.f, 6)}\n` +
-            `residual avg/max (%): ${toFixedOrNa(affineResult.residualAvgPct, 4)} / ${toFixedOrNa(affineResult.residualMaxPct, 4)}\n` +
-            `max residual (mm): ${toExponentialOrNa(maxResidual, 3)}`;
+    return (
+      (
+        this.engine as unknown as {
+          estimateAffineDistortion?: (pairs: AffinePair[]) => AffineResultLike | null;
         }
-      }
-      if (this.affineCtx) {
-        drawAffineGrid(this.affineCtx, affineResult, affinePairs);
-      }
-    }
-
-    const traceSurfaceList = flattenTraceSurfaces(ordered);
-    const failureBySurface: Record<string, number> = {};
-    const failureReasonBySurface: Record<
-      string,
-      { incident: number; tir: number; unknown: number }
-    > = {};
-    for (const item of traceSurfaceList) {
-      failureBySurface[item.name] = 0;
-      failureReasonBySurface[item.name] = { incident: 0, tir: 0, unknown: 0 };
-    }
-    let debugSuccessCount = 0;
-    let debugFailCount = 0;
-    for (const sourceRay of sourceRays) {
-      let activeRay = (sourceRay as RayLike).clone?.() ?? (sourceRay as RayLike);
-      let failed = false;
-      for (const item of traceSurfaceList) {
-        const nextRay = item.surface.refract?.(activeRay);
-        if (!nextRay) {
-          failureBySurface[item.name] += 1;
-          const reason = classifyFailure(item.surface, activeRay);
-          failureReasonBySurface[item.name][reason] += 1;
-          debugFailCount += 1;
-          failed = true;
-          break;
-        }
-        activeRay = nextRay;
-      }
-      if (!failed) debugSuccessCount += 1;
-    }
-    const failureEntries = Object.entries(failureBySurface).sort((a, b) => b[1] - a[1]);
-    const failureText = failureEntries.length
-      ? failureEntries.map(([name, count]) => `${name}:${count}`).join(', ')
-      : 'none';
-    const failureReasonText = failureEntries.length
-      ? failureEntries
-          .map(([name]) => {
-            const reason = failureReasonBySurface[name];
-            return `${name}(incident=${reason.incident},tir=${reason.tir},unknown=${reason.unknown})`;
-          })
-          .join(', ')
-      : 'none';
-
-    this.hudDebugText =
-      'SCAX UMD Mesh Render Test\n' +
-      `config: model=${this.config.eyeModel}, eye=(${this.config.eye?.s},${this.config.eye?.c},${this.config.eye?.ax})\n` +
-      `cornea axis(mode): ${hasInducedAstigmatism ? 'induced' : 'base'} (${toFixedOrNa(activeCorneaAxis, 2)}deg)\n` +
-      `rays(simulated/rendered): ${tracedRays.length} / ${this.rayObjects.length}\n` +
-      `sturm objects: ${this.sturmObjects.length}\n` +
-      `surface meridians: ${this.meridianObjects.length}\n` +
-      `trace debug success/fail: ${debugSuccessCount} / ${debugFailCount}\n` +
-      `trace debug fail@surface: ${failureText}\n` +
-      `trace debug fail reason: ${failureReasonText}\n` +
-      `meshes: ${this.surfaceMeshes.length}\n` +
-      'status: geometry + rays + sturm rendered';
+      ).estimateAffineDistortion?.(affinePairs) ?? null
+    );
   }
 
   private createMeridianLine(
