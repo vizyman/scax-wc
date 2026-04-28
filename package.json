@@ -1,7 +1,7 @@
 {
   "name": "scax-wc",
   "version": "0.1.0",
-  "description": "Lit web component using Three.js",
+  "description": "webcomponent with scax-engine",
   "type": "module",
   "main": "./dist/scax-wc.cjs",
   "module": "./dist/scax-wc.esm.js",
@@ -31,6 +31,7 @@
     "threejs",
     "typescript"
   ],
+  "author": "vizyman",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
