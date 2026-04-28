@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SCAX WC UI Test</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        font-family: Arial, sans-serif;
+        background: #0f172a;
+      }
+
+      body {
+        overflow: hidden;
+      }
+
+      .container {
+        width: 100%;
+        height: 100%;
+      }
+
+      scax-wc {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <scax-wc id="demo"></scax-wc>
+    </main>
+
+    <!-- dist 빌드 결과 ESM을 직접 로드 -->
+    <script type="module">
+      import '../dist/scax-wc.esm.js';
+
+      const VD = -18;
+      const demo = document.getElementById('demo');
+      if (demo) {
+        demo.config = {
+          eyeModel: 'navarro',
+          eye: { s: -2, c: -1, ax: 180 },
+          lens: [
+            { s: -10, c: -2, ax: 45, position: { x: 0, y: 0, z: VD }, tilt: { x: 0, y: 0 } },
+            // {
+            //   s: -0.25,
+            //   c: 0.5,
+            //   ax: 180,
+            //   position: { x: 0, y: 0, z: VD + 2 },
+            //   tilt: { x: 0, y: 0 },
+            // },
+          ],
+          light_source: {
+            type: 'grid',
+            width: 0.5,
+            height: 0.5,
+            division: 5,
+            z: -50,
+            vergence: 0,
+          },
+          pupil_type: 'neutral',
+        };
+      }
+    </script>
+  </body>
+</html>
