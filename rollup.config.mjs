@@ -3,7 +3,7 @@ import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
 import dts from 'rollup-plugin-dts';
 
-const external = ['lit', 'lit/decorators.js', 'three'];
+const external = []; //['lit', 'lit/decorators.js', 'three'];
 const basePlugins = [
   resolve({
     browser: true,
