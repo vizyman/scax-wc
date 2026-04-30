@@ -1172,8 +1172,9 @@ export class ScaxWc extends LitElement {
   }
 
   private createScene(): THREE.Scene {
+    const colorTheme = this.getColorTheme();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(this.color.scene.background);
+    scene.background = new THREE.Color(colorTheme.scene.background);
     return scene;
   }
 
@@ -1187,9 +1188,10 @@ export class ScaxWc extends LitElement {
 
   private addDefaultLights(): void {
     if (!this.scene) return;
-    this.directionalLight = new THREE.DirectionalLight(this.color.light.directional, 0.8);
+    const colorTheme = this.getColorTheme();
+    this.directionalLight = new THREE.DirectionalLight(colorTheme.light.directional, 0.8);
     this.directionalLight.position.set(80, -60, 100);
-    this.ambientLight = new THREE.AmbientLight(this.color.light.ambient, 0.7);
+    this.ambientLight = new THREE.AmbientLight(colorTheme.light.ambient, 0.7);
     this.scene.add(this.ambientLight, this.directionalLight);
   }
 
@@ -1330,6 +1332,7 @@ export class ScaxWc extends LitElement {
     combinedAstigmatism: AstigmatismSummaryItem,
   ) {
     if (!this.scene || !this.engine) return;
+    const colorTheme = this.getColorTheme();
 
     this.clearAllRenderableGroups();
 
@@ -1389,17 +1392,17 @@ export class ScaxWc extends LitElement {
 
     this.surfaceMeshes = buildSurfaceMeshes(ordered, {
       resolveRadius: (surface) => lensRadiusBySurface.get(surface),
-      colorTheme: this.color,
+      colorTheme,
     });
     for (const mesh of this.surfaceMeshes) {
       this.scene.add(mesh);
     }
-    this.rayObjects = buildRayObjectsWithTheme(tracedRays, this.color);
+    this.rayObjects = buildRayObjectsWithTheme(tracedRays, colorTheme);
     for (const object of this.rayObjects) {
       this.scene.add(object);
     }
 
-    this.lightSourceObjects = buildLightSourceObjectsWithTheme(sourceRays, this.color);
+    this.lightSourceObjects = buildLightSourceObjectsWithTheme(sourceRays, colorTheme);
     for (const object of this.lightSourceObjects) {
       this.scene.add(object);
     }
@@ -1469,14 +1472,14 @@ export class ScaxWc extends LitElement {
             part,
             plusAxis + 45,
             halfLength,
-            this.color.lens.cross.bisector,
+            colorTheme.lens.cross.bisector,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
           );
           const bisectorB = this.createMeridianDashedLine(
             part,
             plusAxis + 135,
             halfLength,
-            this.color.lens.cross.bisector,
+            colorTheme.lens.cross.bisector,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
           );
           if (bisectorA) meridianObjects.push(bisectorA);
@@ -1486,7 +1489,7 @@ export class ScaxWc extends LitElement {
               part,
               plusAxis,
               halfLength,
-              this.color.lens.cross.plusMarker,
+              colorTheme.lens.cross.plusMarker,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1495,7 +1498,7 @@ export class ScaxWc extends LitElement {
               part,
               minusAxis,
               halfLength,
-              this.color.lens.cross.minusMarker,
+              colorTheme.lens.cross.minusMarker,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1504,7 +1507,7 @@ export class ScaxWc extends LitElement {
               part,
               plusAxis + 45,
               halfLength,
-              this.color.lens.cross.bisector,
+              colorTheme.lens.cross.bisector,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1513,7 +1516,7 @@ export class ScaxWc extends LitElement {
               part,
               plusAxis + 135,
               halfLength,
-              this.color.lens.cross.bisector,
+              colorTheme.lens.cross.bisector,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1524,14 +1527,14 @@ export class ScaxWc extends LitElement {
           part,
           axisDeg,
           halfLength,
-          this.color.lens.secondary,
+          colorTheme.lens.secondary,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const minor = this.createMeridianLine(
           part,
           axisDeg + 90,
           halfLength,
-          this.color.lens.primary,
+          colorTheme.lens.primary,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (major) meridianObjects.push(major);
@@ -1545,14 +1548,14 @@ export class ScaxWc extends LitElement {
         corneaAstigSurface,
         combinedWeakAxis,
         halfLength,
-        this.color.compound.weakFar,
+        colorTheme.compound.weakFar,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       const activeMinor = this.createMeridianLine(
         corneaAstigSurface,
         combinedStrongAxis,
         halfLength,
-        this.color.compound.strongNear,
+        colorTheme.compound.strongNear,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       if (activeMajor) meridianObjects.push(activeMajor);
@@ -1563,14 +1566,14 @@ export class ScaxWc extends LitElement {
           corneaAstigSurface,
           baseCorneaAxis,
           halfLength,
-          this.color.eye.basePrimary,
+          colorTheme.eye.basePrimary,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const baseMinor = this.createMeridianDashedLine(
           corneaAstigSurface,
           baseCorneaAxis + 90,
           halfLength,
-          this.color.eye.baseSecondary,
+          colorTheme.eye.baseSecondary,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (baseMajor) meridianObjects.push(baseMajor);
@@ -1791,6 +1794,7 @@ export class ScaxWc extends LitElement {
     sturmInfo: SturmInfoLike[],
     combinedAstigmatism: AstigmatismSummaryItem,
   ): THREE.Object3D[] {
+    const colorTheme = this.getColorTheme();
     const objects: THREE.Object3D[] = [];
     const corneaDiameterMm = 11.6;
     const combinedMeridians = combinedAstigmatism.filter(
@@ -1833,15 +1837,14 @@ export class ScaxWc extends LitElement {
         if (!item.has_astigmatism) continue;
         const dStrong = angleDistance180(angleDeg, strongFocalAxis);
         const dWeak = angleDistance180(angleDeg, weakFocalAxis);
-        let color =
-          dStrong <= dWeak ? this.color.compound.strongNear : this.color.compound.weakFar;
+        let color = dStrong <= dWeak ? colorTheme.compound.strongNear : colorTheme.compound.weakFar;
         // If focal axis matching is ambiguous, keep stronger power on nearer line.
         if (Math.abs(dStrong - dWeak) < 1e-6 && drawableProfiles.length >= 2) {
           const nearestIndex = drawableProfiles[0].center.z <= drawableProfiles[1].center.z ? 0 : 1;
           color =
             profileIndex === nearestIndex
-              ? this.color.compound.strongNear
-              : this.color.compound.weakFar;
+              ? colorTheme.compound.strongNear
+              : colorTheme.compound.weakFar;
         }
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
@@ -1851,10 +1854,10 @@ export class ScaxWc extends LitElement {
         const markerMaterial = new THREE.MeshStandardMaterial({
           color: Number.isFinite(item?.color)
             ? (item.color as number)
-            : this.color.sturm.centerFallback,
+            : colorTheme.sturm.centerFallback,
           emissive: Number.isFinite(item?.color)
             ? (item.color as number)
-            : this.color.sturm.centerFallback,
+            : colorTheme.sturm.centerFallback,
           emissiveIntensity: 0.2,
           metalness: 0.05,
           roughness: 0.4,
@@ -1900,17 +1903,22 @@ export class ScaxWc extends LitElement {
   }
 
   private applyColorTheme(): void {
-    this.style.setProperty('--scax-host-border-color', this.color.ui.hostBorder);
-    this.style.setProperty('--scax-host-background-color', this.color.ui.hostBackground);
+    const colorTheme = this.getColorTheme();
+    this.style.setProperty('--scax-host-border-color', colorTheme.ui.hostBorder);
+    this.style.setProperty('--scax-host-background-color', colorTheme.ui.hostBackground);
     if (this.scene) {
-      this.scene.background = new THREE.Color(this.color.scene.background);
+      this.scene.background = new THREE.Color(colorTheme.scene.background);
     }
     if (this.directionalLight) {
-      this.directionalLight.color.set(this.color.light.directional);
+      this.directionalLight.color.set(colorTheme.light.directional);
     }
     if (this.ambientLight) {
-      this.ambientLight.color.set(this.color.light.ambient);
+      this.ambientLight.color.set(colorTheme.light.ambient);
     }
+  }
+
+  private getColorTheme(): ScaxColorTheme {
+    return mergeScaxColorTheme((this.color ?? null) as ScaxColorThemeInput | null);
   }
 
   private handleResize = () => {
