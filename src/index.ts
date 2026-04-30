@@ -220,22 +220,159 @@ type AffineResultLike = {
   residuals?: Array<{ magnitude?: number }>;
 };
 
-// Compound(astigmatic focal) palette: stronger power -> nearer focal plane.
-const COLOR_COMPOUND_STRONG_NEAR = 0xf59e0b;
-const COLOR_COMPOUND_WEAK_FAR = 0x06b6d4;
-// Eye meridian palette (must differ from compound/lens).
+type ScaxColorValue = THREE.ColorRepresentation;
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Record<string, unknown> ? DeepPartial<T[K]> : T[K];
+};
 
-const COLOR_EYE_BASE_PRIMARY = 0x38bdf8;
-const COLOR_EYE_BASE_SECONDARY = 0xf472b6;
-// Spectacle lens meridian palette (non cross-cylinder).
-const COLOR_LENS_PRIMARY = 0x3b82f6;
-const COLOR_LENS_SECONDARY = 0xec4899;
-// Cross-cylinder dedicated palette (separate from all above).
-const COLOR_LENS_CROSS_PRIMARY = 0xef4444;
-const COLOR_LENS_CROSS_SECONDARY = 0xffffff;
-const COLOR_LENS_CROSS_PLUS_MARKER = 0xef4444;
-const COLOR_LENS_CROSS_MINUS_MARKER = 0xffffff;
-const COLOR_LENS_CROSS_BISECTOR = 0x000000;
+export interface ScaxColorTheme {
+  surface: {
+    apertureStop: ScaxColorValue;
+    cornea: ScaxColorValue;
+    retinaOrSphericalImage: ScaxColorValue;
+    compound: ScaxColorValue;
+    toric: ScaxColorValue;
+    aspherical: ScaxColorValue;
+    default: ScaxColorValue;
+  };
+  ray: {
+    default: ScaxColorValue;
+  };
+  lightSource: {
+    default: ScaxColorValue;
+  };
+  compound: {
+    strongNear: ScaxColorValue;
+    weakFar: ScaxColorValue;
+  };
+  eye: {
+    basePrimary: ScaxColorValue;
+    baseSecondary: ScaxColorValue;
+  };
+  lens: {
+    primary: ScaxColorValue;
+    secondary: ScaxColorValue;
+    cross: {
+      primary: ScaxColorValue;
+      secondary: ScaxColorValue;
+      plusMarker: ScaxColorValue;
+      minusMarker: ScaxColorValue;
+      bisector: ScaxColorValue;
+    };
+  };
+  sturm: {
+    centerFallback: ScaxColorValue;
+  };
+  ui: {
+    hostBorder: string;
+    hostBackground: string;
+  };
+  scene: {
+    background: ScaxColorValue;
+  };
+  light: {
+    directional: ScaxColorValue;
+    ambient: ScaxColorValue;
+  };
+}
+
+export type ScaxColorThemeInput = DeepPartial<ScaxColorTheme>;
+
+export function defaultScaxColorTheme(): ScaxColorTheme {
+  return {
+    surface: {
+      apertureStop: '#000000',
+      cornea: '#f8fafc',
+      retinaOrSphericalImage: '#fb923c',
+      compound: '#60a5fa',
+      toric: '#c084fc',
+      aspherical: '#22d3ee',
+      default: '#e5e7eb',
+    },
+    ray: {
+      default: 0xfbbf24,
+    },
+    lightSource: {
+      default: 0xfbbf24,
+    },
+    compound: {
+      strongNear: 0xf59e0b,
+      weakFar: 0x06b6d4,
+    },
+    eye: {
+      basePrimary: 0x38bdf8,
+      baseSecondary: 0xf472b6,
+    },
+    lens: {
+      primary: 0x3b82f6,
+      secondary: 0xec4899,
+      cross: {
+        primary: 0xef4444,
+        secondary: 0xffffff,
+        plusMarker: 0xef4444,
+        minusMarker: 0xffffff,
+        bisector: 0x000000,
+      },
+    },
+    sturm: {
+      centerFallback: 0x60a5fa,
+    },
+    ui: {
+      hostBorder: '#d1d5db',
+      hostBackground: '#111827',
+    },
+    scene: {
+      background: '#0f172a',
+    },
+    light: {
+      directional: '#ffffff',
+      ambient: '#ffffff',
+    },
+  };
+}
+
+export function mergeScaxColorTheme(
+  partial: ScaxColorThemeInput | null | undefined,
+): ScaxColorTheme {
+  const base = defaultScaxColorTheme();
+  if (!partial) return base;
+  return {
+    ...base,
+    ...partial,
+    surface: { ...base.surface, ...partial.surface },
+    ray: { ...base.ray, ...partial.ray },
+    lightSource: { ...base.lightSource, ...partial.lightSource },
+    compound: { ...base.compound, ...partial.compound },
+    eye: { ...base.eye, ...partial.eye },
+    lens: {
+      ...base.lens,
+      ...partial.lens,
+      cross: { ...base.lens.cross, ...partial.lens?.cross },
+    },
+    sturm: { ...base.sturm, ...partial.sturm },
+    ui: { ...base.ui, ...partial.ui },
+    scene: { ...base.scene, ...partial.scene },
+    light: { ...base.light, ...partial.light },
+  };
+}
+
+export function parseColorAttribute(raw: string | null): ScaxColorTheme {
+  if (raw == null || raw.trim() === '') {
+    return defaultScaxColorTheme();
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      console.warn(`${TAG} "color" must be a JSON object. Got:`, raw);
+      return defaultScaxColorTheme();
+    }
+    return mergeScaxColorTheme(parsed as ScaxColorThemeInput);
+  } catch {
+    console.warn(`${TAG} Failed to parse JSON "color", using defaults. Raw:`, raw);
+    return defaultScaxColorTheme();
+  }
+}
+
 const CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM = -0.25;
 const LENS_MERIDIAN_ANTERIOR_OFFSET_MM = -0.2;
 
@@ -313,16 +450,18 @@ function createOrientedLineObject(
   return new THREE.Line(geometry, material);
 }
 
-function surfaceColor(type: string, name?: string) {
+function surfaceColor(type: string, name: string | undefined, colorTheme: ScaxColorTheme) {
   const lowerType = String(type ?? '').toLowerCase();
   const lowerName = String(name ?? '').toLowerCase();
-  if (lowerName === 'pupil_stop' || lowerType === 'aperture_stop') return '#000000';
-  if (lowerName.includes('cornea')) return '#f8fafc';
-  if (lowerName.includes('retina') || type === 'spherical-image') return '#fb923c';
-  if (type === 'compound') return '#60a5fa';
-  if (type === 'toric') return '#c084fc';
-  if (type === 'aspherical') return '#22d3ee';
-  return '#e5e7eb';
+  if (lowerName === 'pupil_stop' || lowerType === 'aperture_stop') return colorTheme.surface.apertureStop;
+  if (lowerName.includes('cornea')) return colorTheme.surface.cornea;
+  if (lowerName.includes('retina') || type === 'spherical-image') {
+    return colorTheme.surface.retinaOrSphericalImage;
+  }
+  if (type === 'compound') return colorTheme.surface.compound;
+  if (type === 'toric') return colorTheme.surface.toric;
+  if (type === 'aspherical') return colorTheme.surface.aspherical;
+  return colorTheme.surface.default;
 }
 
 type MeshBufferData = {
@@ -703,8 +842,10 @@ export function buildSurfaceMeshes(
   surfaces: SurfaceLike[],
   options?: {
     resolveRadius?: (surface: SurfaceLike, index: number) => number | undefined;
+    colorTheme?: ScaxColorTheme;
   },
 ): THREE.Object3D[] {
+  const colorTheme = options?.colorTheme ?? defaultScaxColorTheme();
   const meshes: THREE.Object3D[] = [];
   const consumed = new Set<number>();
   const findPairIndex = (targetName: string) =>
@@ -718,7 +859,7 @@ export function buildSurfaceMeshes(
     const surface = surfaces[index];
     const type = String(surface.type ?? 'surface');
     const name = String(surface.name ?? `${type}-${index}`);
-    const color = surfaceColor(type, name);
+    const color = surfaceColor(type, name, colorTheme);
     const lowerName = name.toLowerCase();
     const isPupilStop = lowerName === 'pupil_stop';
     const resolvedRadius = options?.resolveRadius?.(surface, index);
@@ -795,6 +936,11 @@ export function buildSurfaceMeshes(
 }
 
 export function buildRayObjects(rays: unknown[]): THREE.Object3D[] {
+  const colorTheme = defaultScaxColorTheme();
+  return buildRayObjectsWithTheme(rays, colorTheme);
+}
+
+function buildRayObjectsWithTheme(rays: unknown[], colorTheme: ScaxColorTheme): THREE.Object3D[] {
   return rays.flatMap((ray) => {
     const points = getRayPoints(ray).filter(isFiniteVector3);
     if (points.length < 2) return [];
@@ -803,7 +949,7 @@ export function buildRayObjects(rays: unknown[]): THREE.Object3D[] {
     const material = new THREE.LineBasicMaterial({
       color: Number.isFinite((ray as { displayColor?: number }).displayColor)
         ? (ray as { displayColor?: number }).displayColor
-        : 0xfbbf24,
+        : colorTheme.ray.default,
       transparent: true,
       opacity: 0.9,
     });
@@ -812,8 +958,16 @@ export function buildRayObjects(rays: unknown[]): THREE.Object3D[] {
 }
 
 export function buildLightSourceObjects(sourceRays: unknown[]): THREE.Object3D[] {
+  const colorTheme = defaultScaxColorTheme();
+  return buildLightSourceObjectsWithTheme(sourceRays, colorTheme);
+}
+
+function buildLightSourceObjectsWithTheme(
+  sourceRays: unknown[],
+  colorTheme: ScaxColorTheme,
+): THREE.Object3D[] {
   const uniqueOrigins = new Map<string, { origin: THREE.Vector3; colors: Set<number> }>();
-  const defaultColor = 0xfbbf24;
+  const defaultColor = new THREE.Color(colorTheme.lightSource.default).getHex();
   for (const ray of sourceRays) {
     const origin = getRayPoints(ray)[0];
     if (!isFiniteVector3(origin)) continue;
@@ -870,10 +1024,10 @@ export class ScaxWc extends LitElement {
       width: 100%;
       height: 100%;
       aspect-ratio: 16 / 9;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--scax-host-border-color, #d1d5db);
       border-radius: 12px;
       overflow: hidden;
-      background: #111827;
+      background: var(--scax-host-background-color, #111827);
     }
 
     #canvas-root {
@@ -903,6 +1057,20 @@ export class ScaxWc extends LitElement {
   })
   config: ScaxRenderConfig = mergeScaxConfig({});
 
+  @property({
+    attribute: 'color',
+    type: String,
+    converter: {
+      fromAttribute(value: string | null): ScaxColorTheme {
+        return parseColorAttribute(value);
+      },
+      toAttribute(value: ScaxColorTheme): string {
+        return JSON.stringify(value);
+      },
+    },
+  })
+  color: ScaxColorTheme = mergeScaxColorTheme({});
+
   @property({ attribute: 'projection' })
   projection?: CameraProjection;
 
@@ -919,6 +1087,8 @@ export class ScaxWc extends LitElement {
   private viewCamera?: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private renderer?: THREE.WebGLRenderer;
   private controls?: OrbitControls;
+  private ambientLight?: THREE.AmbientLight;
+  private directionalLight?: THREE.DirectionalLight;
   private animationId?: number;
   private engine?: SCAXEngine;
   private surfaceMeshes: THREE.Object3D[] = [];
@@ -937,6 +1107,7 @@ export class ScaxWc extends LitElement {
 
   firstUpdated(): void {
     this.bootstrapScene();
+    this.applyColorTheme();
     this.bootstrapEngine();
     this.refreshSimulationScene();
     window.addEventListener('resize', this.handleResize);
@@ -950,7 +1121,14 @@ export class ScaxWc extends LitElement {
     if (changed.has('enableZoom') || changed.has('enablePan') || changed.has('enableRotate')) {
       this.applyOrbitControlState();
     }
-    if (!changed.has('config')) return;
+    const colorChanged = changed.has('color');
+    if (colorChanged) {
+      this.applyColorTheme();
+    }
+    if (!changed.has('config')) {
+      if (colorChanged && this.scene) this.refreshSimulationScene();
+      return;
+    }
     if (!this.scene) return;
 
     this.syncEngineConfig();
@@ -995,7 +1173,7 @@ export class ScaxWc extends LitElement {
 
   private createScene(): THREE.Scene {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#0f172a');
+    scene.background = new THREE.Color(this.color.scene.background);
     return scene;
   }
 
@@ -1009,10 +1187,10 @@ export class ScaxWc extends LitElement {
 
   private addDefaultLights(): void {
     if (!this.scene) return;
-    const directional = new THREE.DirectionalLight('#ffffff', 0.8);
-    directional.position.set(80, -60, 100);
-    const ambient = new THREE.AmbientLight('#ffffff', 0.7);
-    this.scene.add(ambient, directional);
+    this.directionalLight = new THREE.DirectionalLight(this.color.light.directional, 0.8);
+    this.directionalLight.position.set(80, -60, 100);
+    this.ambientLight = new THREE.AmbientLight(this.color.light.ambient, 0.7);
+    this.scene.add(this.ambientLight, this.directionalLight);
   }
 
   private bootstrapEngine(): void {
@@ -1082,6 +1260,8 @@ export class ScaxWc extends LitElement {
     this.renderer?.dispose();
     this.renderer = undefined;
     this.viewCamera = undefined;
+    this.ambientLight = undefined;
+    this.directionalLight = undefined;
     this.scene = undefined;
   }
 
@@ -1209,16 +1389,17 @@ export class ScaxWc extends LitElement {
 
     this.surfaceMeshes = buildSurfaceMeshes(ordered, {
       resolveRadius: (surface) => lensRadiusBySurface.get(surface),
+      colorTheme: this.color,
     });
     for (const mesh of this.surfaceMeshes) {
       this.scene.add(mesh);
     }
-    this.rayObjects = buildRayObjects(tracedRays);
+    this.rayObjects = buildRayObjectsWithTheme(tracedRays, this.color);
     for (const object of this.rayObjects) {
       this.scene.add(object);
     }
 
-    this.lightSourceObjects = buildLightSourceObjects(sourceRays);
+    this.lightSourceObjects = buildLightSourceObjectsWithTheme(sourceRays, this.color);
     for (const object of this.lightSourceObjects) {
       this.scene.add(object);
     }
@@ -1288,14 +1469,14 @@ export class ScaxWc extends LitElement {
             part,
             plusAxis + 45,
             halfLength,
-            COLOR_LENS_CROSS_BISECTOR,
+            this.color.lens.cross.bisector,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
           );
           const bisectorB = this.createMeridianDashedLine(
             part,
             plusAxis + 135,
             halfLength,
-            COLOR_LENS_CROSS_BISECTOR,
+            this.color.lens.cross.bisector,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
           );
           if (bisectorA) meridianObjects.push(bisectorA);
@@ -1305,7 +1486,7 @@ export class ScaxWc extends LitElement {
               part,
               plusAxis,
               halfLength,
-              COLOR_LENS_CROSS_PLUS_MARKER,
+              this.color.lens.cross.plusMarker,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1314,7 +1495,7 @@ export class ScaxWc extends LitElement {
               part,
               minusAxis,
               halfLength,
-              COLOR_LENS_CROSS_MINUS_MARKER,
+              this.color.lens.cross.minusMarker,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1323,7 +1504,7 @@ export class ScaxWc extends LitElement {
               part,
               plusAxis + 45,
               halfLength,
-              COLOR_LENS_CROSS_BISECTOR,
+              this.color.lens.cross.bisector,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1332,7 +1513,7 @@ export class ScaxWc extends LitElement {
               part,
               plusAxis + 135,
               halfLength,
-              COLOR_LENS_CROSS_BISECTOR,
+              this.color.lens.cross.bisector,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
@@ -1343,14 +1524,14 @@ export class ScaxWc extends LitElement {
           part,
           axisDeg,
           halfLength,
-          COLOR_LENS_SECONDARY,
+          this.color.lens.secondary,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const minor = this.createMeridianLine(
           part,
           axisDeg + 90,
           halfLength,
-          COLOR_LENS_PRIMARY,
+          this.color.lens.primary,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (major) meridianObjects.push(major);
@@ -1364,14 +1545,14 @@ export class ScaxWc extends LitElement {
         corneaAstigSurface,
         combinedWeakAxis,
         halfLength,
-        COLOR_COMPOUND_WEAK_FAR,
+        this.color.compound.weakFar,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       const activeMinor = this.createMeridianLine(
         corneaAstigSurface,
         combinedStrongAxis,
         halfLength,
-        COLOR_COMPOUND_STRONG_NEAR,
+        this.color.compound.strongNear,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       if (activeMajor) meridianObjects.push(activeMajor);
@@ -1382,14 +1563,14 @@ export class ScaxWc extends LitElement {
           corneaAstigSurface,
           baseCorneaAxis,
           halfLength,
-          COLOR_EYE_BASE_PRIMARY,
+          this.color.eye.basePrimary,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const baseMinor = this.createMeridianDashedLine(
           corneaAstigSurface,
           baseCorneaAxis + 90,
           halfLength,
-          COLOR_EYE_BASE_SECONDARY,
+          this.color.eye.baseSecondary,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (baseMajor) meridianObjects.push(baseMajor);
@@ -1652,12 +1833,15 @@ export class ScaxWc extends LitElement {
         if (!item.has_astigmatism) continue;
         const dStrong = angleDistance180(angleDeg, strongFocalAxis);
         const dWeak = angleDistance180(angleDeg, weakFocalAxis);
-        let color = dStrong <= dWeak ? COLOR_COMPOUND_STRONG_NEAR : COLOR_COMPOUND_WEAK_FAR;
+        let color =
+          dStrong <= dWeak ? this.color.compound.strongNear : this.color.compound.weakFar;
         // If focal axis matching is ambiguous, keep stronger power on nearer line.
         if (Math.abs(dStrong - dWeak) < 1e-6 && drawableProfiles.length >= 2) {
           const nearestIndex = drawableProfiles[0].center.z <= drawableProfiles[1].center.z ? 0 : 1;
           color =
-            profileIndex === nearestIndex ? COLOR_COMPOUND_STRONG_NEAR : COLOR_COMPOUND_WEAK_FAR;
+            profileIndex === nearestIndex
+              ? this.color.compound.strongNear
+              : this.color.compound.weakFar;
         }
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
@@ -1665,8 +1849,12 @@ export class ScaxWc extends LitElement {
       if (approxCenterPoint) {
         const markerGeometry = new THREE.SphereGeometry(0.7, 16, 12);
         const markerMaterial = new THREE.MeshStandardMaterial({
-          color: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
-          emissive: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
+          color: Number.isFinite(item?.color)
+            ? (item.color as number)
+            : this.color.sturm.centerFallback,
+          emissive: Number.isFinite(item?.color)
+            ? (item.color as number)
+            : this.color.sturm.centerFallback,
           emissiveIntensity: 0.2,
           metalness: 0.05,
           roughness: 0.4,
@@ -1708,6 +1896,20 @@ export class ScaxWc extends LitElement {
       this.sturmObjects = [];
     } else if (objects === this.meridianObjects) {
       this.meridianObjects = [];
+    }
+  }
+
+  private applyColorTheme(): void {
+    this.style.setProperty('--scax-host-border-color', this.color.ui.hostBorder);
+    this.style.setProperty('--scax-host-background-color', this.color.ui.hostBackground);
+    if (this.scene) {
+      this.scene.background = new THREE.Color(this.color.scene.background);
+    }
+    if (this.directionalLight) {
+      this.directionalLight.color.set(this.color.light.directional);
+    }
+    if (this.ambientLight) {
+      this.ambientLight.color.set(this.color.light.ambient);
     }
   }
 

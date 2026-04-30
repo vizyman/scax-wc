@@ -3,6 +3,8 @@
 Lit + Three.js 기반 안경광학 시뮬레이션(단안 기준, OD) 웹 컴포넌트 입니다.  
 Lit + Three.js based ophthalmic optics simulation web component (monocular, OD).
 
+![scax-wc preview](./main.png)
+
 ## 설치
 
 ```bash
@@ -33,6 +35,14 @@ import 'scax-wc';
     "pupil_type":"neutral",
     "render":{"pupil":true}
   }'
+  color='{
+    "scene":{"background":"#020617"},
+    "surface":{"cornea":"#e2e8f0","retinaOrSphericalImage":"#f97316"},
+    "ray":{"default":"#facc15"},
+    "lightSource":{"default":"#fde047"},
+    "compound":{"strongNear":"#f59e0b","weakFar":"#06b6d4"},
+    "ui":{"hostBorder":"#334155","hostBackground":"#0f172a"}
+  }'
 ></scax-wc>
 ```
 
@@ -50,6 +60,13 @@ if (el) {
     light_source: { type: 'grid', width: 10, height: 10, division: 4, z: -10, vergence: 0 },
     pupil_type: 'neutral',
     render: { pupil: true }, // 동공(aperture stop) 메쉬 표시
+  };
+  el.color = {
+    scene: { background: '#020617' },
+    surface: { cornea: '#e2e8f0', retinaOrSphericalImage: '#f97316' },
+    ray: { default: '#facc15' },
+    lightSource: { default: '#fde047' },
+    ui: { hostBorder: '#334155', hostBackground: '#0f172a' },
   };
 
   const simulateResult = el.getSimulateResult();
@@ -133,6 +150,30 @@ if (el) {
 - `light_source`: 광원 설정 (`type`, `width`, `height`, `division`, `z`, `vergence`)
 - `pupil_type`: 동공 타입
 - `render.pupil`: 동공(aperture stop) 메쉬 렌더링 여부 (`true` 시 검은색 메쉬로 렌더링, 기본값: `false`)
+
+#### `color`
+
+- 타입: `ScaxColorTheme`
+- 속성: `color` (JSON 문자열)
+- 기본값: 내부 기본 팔레트(기존 하드코딩 색상과 동일)
+
+동작 방식:
+
+- 문자열 속성으로 전달되면 JSON으로 파싱한 뒤 기본 팔레트와 병합합니다.
+- 속성이 없거나 빈 값이거나 잘못된 JSON이면 기본 팔레트를 사용합니다.
+
+주요 필드:
+
+- `surface`: 표면 색상 (`apertureStop`, `cornea`, `retinaOrSphericalImage`, `compound`, `toric`, `aspherical`, `default`)
+- `ray.default`: 광선 기본 색상 (`ray.displayColor`가 없을 때 사용)
+- `lightSource.default`: 광원 마커 기본 색상
+- `compound`: Sturm/난시 라인 색상 (`strongNear`, `weakFar`)
+- `eye`: 유도 난시 기준 메리디안 색상 (`basePrimary`, `baseSecondary`)
+- `lens`: 렌즈 메리디안 색상 (`primary`, `secondary`, `cross.plusMarker`, `cross.minusMarker`, `cross.bisector` 등)
+- `sturm.centerFallback`: Sturm 중심점 fallback 색상
+- `scene.background`: Three.js scene 배경색
+- `light.directional` / `light.ambient`: 기본 광원 색상
+- `ui.hostBorder` / `ui.hostBackground`: 컴포넌트 외곽선/배경 색상
 
 #### `projection`
 

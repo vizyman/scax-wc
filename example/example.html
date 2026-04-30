@@ -87,8 +87,8 @@
           ],
           light_source: {
             type: 'grid_rg',
-            width: 0.5,
-            height: 0.5,
+            width: 3,
+            height: 3,
             division: 5,
             z: -50,
             vergence: 0,
@@ -105,6 +105,13 @@
           render: {
             pupil: false,
           },
+        };
+        demo.color = {
+          scene: { background: '#0f172a' },
+          surface: { cornea: '#f8fafc', retinaOrSphericalImage: '#fb923c' },
+          ray: { default: '#fbbf24' },
+          lightSource: { default: '#fbbf24' },
+          ui: { hostBorder: '#d1d5db', hostBackground: '#111827' },
         };
 
         const uiState = {
@@ -128,6 +135,13 @@
           lightDivision: 5,
           lightVergence: 0,
           renderPupil: false,
+          sceneBackground: '#0f172a',
+          corneaColor: '#f8fafc',
+          retinaColor: '#fb923c',
+          rayColor: '#fbbf24',
+          sourceColor: '#fbbf24',
+          hostBorderColor: '#d1d5db',
+          hostBackgroundColor: '#111827',
         };
 
         const applyConfig = () => {
@@ -180,6 +194,19 @@
               pupil: uiState.renderPupil,
             },
           };
+          demo.color = {
+            scene: { background: uiState.sceneBackground },
+            surface: {
+              cornea: uiState.corneaColor,
+              retinaOrSphericalImage: uiState.retinaColor,
+            },
+            ray: { default: uiState.rayColor },
+            lightSource: { default: uiState.sourceColor },
+            ui: {
+              hostBorder: uiState.hostBorderColor,
+              hostBackground: uiState.hostBackgroundColor,
+            },
+          };
         };
 
         const saveCameraState = () => {
@@ -193,7 +220,10 @@
           try {
             const state = JSON.parse(raw);
             demo.setCameraState(state);
-            if (state && (state.projection === 'perspective' || state.projection === 'orthogonal')) {
+            if (
+              state &&
+              (state.projection === 'perspective' || state.projection === 'orthogonal')
+            ) {
               uiState.projection = state.projection;
             }
           } catch (error) {
@@ -223,6 +253,13 @@
             lightDivision: 5,
             lightVergence: 0,
             renderPupil: false,
+            sceneBackground: '#0f172a',
+            corneaColor: '#f8fafc',
+            retinaColor: '#fb923c',
+            rayColor: '#fbbf24',
+            sourceColor: '#fbbf24',
+            hostBorderColor: '#d1d5db',
+            hostBackgroundColor: '#111827',
           });
           applyConfig();
         };
@@ -275,6 +312,18 @@
         lightFolder
           .add(uiState, 'lightVergence', -2, 2, 0.1)
           .name('Vergence')
+          .onChange(applyConfig);
+
+        const colorFolder = gui.addFolder('Color');
+        colorFolder.addColor(uiState, 'sceneBackground').name('Scene BG').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'corneaColor').name('Cornea').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'retinaColor').name('Retina').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'rayColor').name('Ray').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'sourceColor').name('Source').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'hostBorderColor').name('Host Border').onChange(applyConfig);
+        colorFolder
+          .addColor(uiState, 'hostBackgroundColor')
+          .name('Host Background')
           .onChange(applyConfig);
 
         gui.add({ reset: resetState }, 'reset').name('Reset');

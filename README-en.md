@@ -37,6 +37,14 @@ The default size uses a `16:9` aspect ratio and renders to fit its parent contai
     "pupil_type":"neutral",
     "render":{"pupil":true}
   }'
+  color='{
+    "scene":{"background":"#020617"},
+    "surface":{"cornea":"#e2e8f0","retinaOrSphericalImage":"#f97316"},
+    "ray":{"default":"#facc15"},
+    "lightSource":{"default":"#fde047"},
+    "compound":{"strongNear":"#f59e0b","weakFar":"#06b6d4"},
+    "ui":{"hostBorder":"#334155","hostBackground":"#0f172a"}
+  }'
 ></scax-wc>
 ```
 
@@ -54,6 +62,13 @@ if (el) {
     light_source: { type: 'grid', width: 10, height: 10, division: 4, z: -10, vergence: 0 },
     pupil_type: 'neutral',
     render: { pupil: true }, // show pupil (aperture stop) mesh
+  };
+  el.color = {
+    scene: { background: '#020617' },
+    surface: { cornea: '#e2e8f0', retinaOrSphericalImage: '#f97316' },
+    ray: { default: '#facc15' },
+    lightSource: { default: '#fde047' },
+    ui: { hostBorder: '#334155', hostBackground: '#0f172a' },
   };
 
   const simulateResult = el.getSimulateResult();
@@ -120,6 +135,28 @@ Key fields:
 - `light_source`: Light source settings (`type`, `width`, `height`, `division`, `z`, `vergence`)
 - `pupil_type`: Pupil type
 - `render.pupil`: Whether to render the pupil (aperture stop) mesh (`true` renders a black mesh, default: `false`)
+
+#### `color`
+
+- Type: `ScaxColorTheme`
+- Attribute: `color` (JSON string)
+- Default: internal default palette (same as previous hard-coded colors)
+
+Behavior:
+- When passed as a string attribute, the value is parsed as JSON and merged with the default palette.
+- If the attribute is missing, empty, or invalid JSON, the default palette is used.
+
+Key fields:
+- `surface`: surface colors (`apertureStop`, `cornea`, `retinaOrSphericalImage`, `compound`, `toric`, `aspherical`, `default`)
+- `ray.default`: fallback ray color (used when `ray.displayColor` is absent)
+- `lightSource.default`: fallback light source marker color
+- `compound`: Sturm/astigmatism line colors (`strongNear`, `weakFar`)
+- `eye`: baseline induced-astigmatism meridian colors (`basePrimary`, `baseSecondary`)
+- `lens`: lens meridian colors (`primary`, `secondary`, `cross.plusMarker`, `cross.minusMarker`, `cross.bisector`, etc.)
+- `sturm.centerFallback`: fallback color for Sturm center markers
+- `scene.background`: Three.js scene background color
+- `light.directional` / `light.ambient`: default light colors
+- `ui.hostBorder` / `ui.hostBackground`: host border/background colors
 
 #### `projection`
 
