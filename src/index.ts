@@ -45,6 +45,11 @@ type CameraPose = {
   target: THREE.Vector3;
 };
 
+type CameraPoseInput = {
+  position?: CameraPosition;
+  target?: CameraLookAt;
+};
+
 function isCameraProjection(value: unknown): value is CameraProjection {
   return value === 'perspective' || value === 'orthogonal';
 }
@@ -1043,6 +1048,17 @@ export class ScaxWc extends LitElement {
     return this.lastAffineResult;
   }
 
+  public setCameraPose(pose: CameraPoseInput): void {
+    if (!this.viewCamera) return;
+    const currentPose = this.captureCurrentCameraPose();
+    const fallbackPosition = currentPose?.position ?? this.getCameraPositionFromOptions();
+    const fallbackTarget = currentPose?.target ?? this.getCameraLookAtFromOptions();
+    const nextPosition = this.resolveCameraVector(pose.position, fallbackPosition);
+    const nextTarget = this.resolveCameraVector(pose.target, fallbackTarget);
+    this.applyCameraPose({ position: nextPosition, target: nextTarget });
+    this.controls?.update();
+  }
+
   private rebuildSceneMeshes(
     tracedRays: unknown[],
     sourceRays: unknown[],
@@ -1755,6 +1771,20 @@ export class ScaxWc extends LitElement {
       Number.isFinite(x) ? x : 0,
       Number.isFinite(y) ? y : 0,
       Number.isFinite(z) ? z : 0,
+    );
+  }
+
+  private resolveCameraVector(
+    value: { x?: number; y?: number; z?: number } | undefined,
+    fallback: THREE.Vector3,
+  ): THREE.Vector3 {
+    const x = Number(value?.x);
+    const y = Number(value?.y);
+    const z = Number(value?.z);
+    return new THREE.Vector3(
+      Number.isFinite(x) ? x : fallback.x,
+      Number.isFinite(y) ? y : fallback.y,
+      Number.isFinite(z) ? z : fallback.z,
     );
   }
 
