@@ -12,8 +12,6 @@ export type {
   EyePowerInput,
   SCAXEngineProps,
   SCAxPower,
-  InducedAstigmatism,
-  InducedAstigmatismSummary,
   AstigmatismSummaryItem,
   PrismSummaryItem,
   SimulationResultInfo,

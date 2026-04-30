@@ -34,7 +34,8 @@ The default size uses a `16:9` aspect ratio and renders to fit its parent contai
     "eye":{"s":-2,"c":-0.5,"ax":180},
     "lens":[{"s":1.0,"c":-1.0,"ax":90,"diameter":6.0,"type":"lens"}],
     "light_source":{"type":"grid","width":10,"height":10,"division":4,"z":-10,"vergence":0},
-    "pupil_type":"neutral"
+    "pupil_type":"neutral",
+    "render":{"pupil":true}
   }'
 ></scax-wc>
 ```
@@ -52,6 +53,7 @@ if (el) {
     lens: [{ s: 1.0, c: -1.0, ax: 90, diameter: 6.0, type: 'cross-cylinder' }],
     light_source: { type: 'grid', width: 10, height: 10, division: 4, z: -10, vergence: 0 },
     pupil_type: 'neutral',
+    render: { pupil: true }, // show pupil (aperture stop) mesh
   };
 
   const simulateResult = el.getSimulateResult();
@@ -102,7 +104,8 @@ if (el) {
   "eye": { "s": 0, "c": 0, "ax": 0 },
   "lens": [],
   "light_source": { "type": "grid", "width": 10, "height": 10, "division": 4, "z": -10, "vergence": 0 },
-  "pupil_type": "neutral"
+  "pupil_type": "neutral",
+  "render": { "pupil": false }
 }
 ```
 
@@ -116,6 +119,7 @@ Key fields:
 - `lens`: Lens array. Each item supports engine lens fields plus `diameter` and `type` (`lens` | `cross-cylinder`)
 - `light_source`: Light source settings (`type`, `width`, `height`, `division`, `z`, `vergence`)
 - `pupil_type`: Pupil type
+- `render.pupil`: Whether to render the pupil (aperture stop) mesh (`true` renders a black mesh, default: `false`)
 
 #### `projection`
 

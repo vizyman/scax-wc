@@ -102,6 +102,9 @@
           //   vergence: 0,
           // },
           pupil_type: 'neutral',
+          render: {
+            pupil: false,
+          },
         };
 
         const uiState = {
@@ -124,6 +127,7 @@
           lightType: 'grid_rg',
           lightDivision: 5,
           lightVergence: 0,
+          renderPupil: false,
         };
 
         const applyConfig = () => {
@@ -172,6 +176,9 @@
               vergence: uiState.lightVergence,
             },
             pupil_type: 'neutral',
+            render: {
+              pupil: uiState.renderPupil,
+            },
           };
         };
 
@@ -215,6 +222,7 @@
             lightType: 'grid_rg',
             lightDivision: 5,
             lightVergence: 0,
+            renderPupil: false,
           });
           applyConfig();
         };
@@ -237,6 +245,7 @@
         eyeFolder.add(uiState, 'eyeS', -12, 12, 0.25).name('S').onChange(applyConfig);
         eyeFolder.add(uiState, 'eyeC', -6, 6, 0.25).name('C').onChange(applyConfig);
         eyeFolder.add(uiState, 'eyeAx', 0, 180, 1).name('Axis').onChange(applyConfig);
+        eyeFolder.add(uiState, 'renderPupil').name('Render Pupil').onChange(applyConfig);
 
         const lensFolder = gui.addFolder('Lens');
         lensFolder.add(uiState, 'lensEnabled').name('Enable Lens').onChange(applyConfig);

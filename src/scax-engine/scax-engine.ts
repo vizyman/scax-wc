@@ -70,14 +70,6 @@ export type SCAXEngineProps = {
 
 export type SCAxPower = { s: number; c: number; ax: number };
 
-export type InducedAstigmatism = { d: number; tabo_deg: number };
-
-export type InducedAstigmatismSummary = {
-  induced: InducedAstigmatism | null;
-  eye: InducedAstigmatism | null;
-  lens: InducedAstigmatism | null;
-};
-
 export type SimulateResult = {
   traced_rays: Ray[];
   info: SimulationResultInfo;
@@ -492,7 +484,7 @@ export class SCAXEngineCore {
    * 3) Affine 왜곡 추정 전용 함수
    * 광선 대응쌍(sx,sy)->(tx,ty)에 대해 최소자승 2D affine을 적합합니다.
    */
-  public estimateAffineDistortion(pairs: AffinePair[]) {
+  private estimateAffineDistortion(pairs: AffinePair[]) {
     const inputPairs = Array.isArray(pairs) ? pairs : [];
     this.lastAffineAnalysis = this.affine.estimate(inputPairs);
     return this.lastAffineAnalysis;
@@ -510,29 +502,6 @@ export class SCAXEngineCore {
       this.lastAffineAnalysis = this.estimateAffineDistortion(this.createAffinePairs(this.tracedRays));
     }
     return this.lastAffineAnalysis;
-  }
-
-  /**
-   * 눈 도수와 안경 도수를 합성했을 때의 유발난시를 계산합니다.
-   * - 입력 축(ax)은 TABO(deg) 기준으로 해석합니다.
-   * - 결과는 { induced, eye, lens }를 반환합니다.
-   * - 각 항목은 { d, tabo_deg } 형태이며, 난시가 없으면 null을 반환합니다.
-   */
-  public calculateInducedAstigmatism(
-    eye: SCAxPower,
-    lens: SCAxPower | SCAxPower[],
-  ): InducedAstigmatismSummary {
-    const lensList = Array.isArray(lens) ? lens : [lens];
-    const toAstigmatism = (powers: SCAxPower[]): InducedAstigmatism | null => {
-      const { j0, j45 } = this.aggregatePowerVector(powers);
-      return this.toInducedAstigmatism(j0, j45);
-    };
-
-    return {
-      induced: toAstigmatism([eye, ...lensList]),
-      eye: toAstigmatism([eye]),
-      lens: toAstigmatism(lensList),
-    };
   }
 
   private surfaceOrderZ(surface: Surface) {
@@ -585,16 +554,6 @@ export class SCAXEngineCore {
       j45 += halfMinusCylinder * Math.sin(rad);
     }
     return { m, j0, j45 };
-  }
-
-  private toInducedAstigmatism(j0: number, j45: number): InducedAstigmatism | null {
-    const d = 2 * Math.hypot(j0, j45);
-    if (!Number.isFinite(d) || d < 1e-9) return null;
-    const axisDeg = (((0.5 * Math.atan2(j45, j0) * 180) / Math.PI) % 180 + 180) % 180;
-    return {
-      d,
-      tabo_deg: DegToTABO(axisDeg),
-    };
   }
 
   private principalMeridiansFromVector(m: number, j0: number, j45: number): AstigmatismSummaryItem {
@@ -891,18 +850,7 @@ export default class SCAXEngine {
     return this.core.sturmCalculation(rays);
   }
 
-  public estimateAffineDistortion(pairs: AffinePair[]) {
-    return this.core.estimateAffineDistortion(pairs);
-  }
-
   public getAffineAnalysis(): AffineAnalysisResult {
     return this.core.getAffineAnalysis();
-  }
-
-  public calculateInducedAstigmatism(
-    eye: SCAxPower,
-    lens: SCAxPower | SCAxPower[],
-  ): InducedAstigmatismSummary {
-    return this.core.calculateInducedAstigmatism(eye, lens);
   }
 }

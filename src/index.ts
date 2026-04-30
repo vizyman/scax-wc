@@ -14,6 +14,9 @@ type LensRenderConfig = NonNullable<SCAXEngineProps['lens']>[number] & {
 
 type ScaxRenderConfig = Omit<SCAXEngineProps, 'lens'> & {
   lens?: LensRenderConfig[];
+  render?: {
+    pupil?: boolean;
+  };
 };
 
 type CameraProjection = 'perspective' | 'orthogonal';
@@ -78,6 +81,9 @@ export function defaultScaxConfig(): ScaxRenderConfig {
       vergence: 0,
     },
     pupil_type: 'neutral',
+    render: {
+      pupil: false,
+    },
   };
 }
 /** 얕은 병합: 최상위만 덮어쓰고, eye는 필드 단위 병합 */
@@ -94,6 +100,10 @@ export function mergeScaxConfig(
     light_source: partial.light_source ?? base.light_source,
     pupil_type: partial.pupil_type ?? base.pupil_type,
     eyeModel: partial.eyeModel ?? base.eyeModel,
+    render: {
+      ...base.render,
+      ...partial.render,
+    },
   };
 }
 export function parseConfigAttribute(raw: string | null): ScaxRenderConfig {
@@ -304,7 +314,9 @@ function createOrientedLineObject(
 }
 
 function surfaceColor(type: string, name?: string) {
+  const lowerType = String(type ?? '').toLowerCase();
   const lowerName = String(name ?? '').toLowerCase();
+  if (lowerName === 'pupil_stop' || lowerType === 'aperture_stop') return '#000000';
   if (lowerName.includes('cornea')) return '#f8fafc';
   if (lowerName.includes('retina') || type === 'spherical-image') return '#fb923c';
   if (type === 'compound') return '#60a5fa';
@@ -398,6 +410,12 @@ function buildDiskMeshData(
 function estimateSurfaceRadius(surface: SurfaceLike): number {
   const type = String(surface.type ?? '').toLowerCase();
   const name = String(surface.name ?? '').toLowerCase();
+  const apertureRadius = Number(surface.radius);
+
+  if (type === 'aperture_stop') {
+    if (Number.isFinite(apertureRadius) && apertureRadius > 0) return apertureRadius;
+    return 2.0;
+  }
 
   if (name.includes('retina') || type === 'spherical-image') return 12.0;
   if (name.includes('cornea')) return 5.8;
@@ -702,6 +720,7 @@ export function buildSurfaceMeshes(
     const name = String(surface.name ?? `${type}-${index}`);
     const color = surfaceColor(type, name);
     const lowerName = name.toLowerCase();
+    const isPupilStop = lowerName === 'pupil_stop';
     const resolvedRadius = options?.resolveRadius?.(surface, index);
     const baseRadius = Number.isFinite(resolvedRadius ?? Number.NaN)
       ? (resolvedRadius as number)
@@ -732,7 +751,7 @@ export function buildSurfaceMeshes(
             metalness: 0.05,
             roughness: 0.7,
             transparent: true,
-            opacity: 0.5,
+            opacity: isPupilStop ? 0.95 : 0.5,
             depthWrite: false,
             side: THREE.DoubleSide,
           });
@@ -761,7 +780,7 @@ export function buildSurfaceMeshes(
         metalness: 0.05,
         roughness: 0.7,
         transparent: true,
-        opacity: 0.5,
+        opacity: isPupilStop ? 0.95 : 0.5,
         depthWrite: false,
         side: THREE.DoubleSide,
       });
@@ -1110,8 +1129,12 @@ export class ScaxWc extends LitElement {
     const eyeSurfaces = Array.isArray(state.surfaces) ? state.surfaces : [];
     const ordered = [...lensSurfaces, ...eyeSurfaces]
       .filter((surface) => {
+        const renderPupil = Boolean(this.config?.render?.pupil);
+        const lowerType = String(surface?.type ?? '').toLowerCase();
         const lowerName = String(surface?.name ?? '').toLowerCase();
-        return lowerName !== 'pupil_stop';
+        const isPupilSurface = lowerName === 'pupil_stop' || lowerType === 'aperture_stop';
+        if (isPupilSurface) return renderPupil;
+        return true;
       })
       .sort((a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z);
     const corneaSurface = eyeSurfaces.find(
