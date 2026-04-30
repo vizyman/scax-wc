@@ -1,4 +1,4 @@
-import { Vector3 } from "three";
+import { Euler, Quaternion, Vector3 } from "three";
 import {
   EPSILON,
   RAY_SURFACE_ESCAPE_MM,
@@ -51,13 +51,37 @@ export default class SphericalSurface extends Surface {
     return !Number.isFinite(this.r) || Math.abs(this.r) > 1e12;
   }
 
+  private worldQuaternion() {
+    const tiltXRad = (this.tilt.x * Math.PI) / 180;
+    const tiltYRad = (this.tilt.y * Math.PI) / 180;
+    return new Quaternion().setFromEuler(new Euler(tiltXRad, tiltYRad, 0, "XYZ"));
+  }
+
+  private worldPointToLocal(worldPoint: Vector3) {
+    const inverse = this.worldQuaternion().invert();
+    return worldPoint.clone().sub(this.position).applyQuaternion(inverse);
+  }
+
+  private localPointToWorld(localPoint: Vector3) {
+    return localPoint.clone().applyQuaternion(this.worldQuaternion()).add(this.position);
+  }
+
+  private worldDirToLocal(worldDirection: Vector3) {
+    const inverse = this.worldQuaternion().invert();
+    return worldDirection.clone().applyQuaternion(inverse).normalize();
+  }
+
+  private localDirToWorld(localDirection: Vector3) {
+    return localDirection.clone().applyQuaternion(this.worldQuaternion()).normalize();
+  }
+
   /**
    * 구면의 중심점입니다.
    * 이 프로젝트의 구면은 +Z 축을 기준으로 배치되며,
    * 중심은 꼭지점(position)에서 반경만큼 Z 방향으로 이동한 위치입니다.
    */
-  private sphereCenter() {
-    return new Vector3(this.position.x, this.position.y, this.position.z + this.r);
+  private sphereCenterLocal() {
+    return new Vector3(0, 0, this.r);
   }
 
   /**
@@ -65,15 +89,15 @@ export default class SphericalSurface extends Surface {
    * - 평면: +Z 법선 사용
    * - 구면: 반경 부호에 따라 중심-입사점 벡터 방향을 맞춰 사용
    */
-  private normalIntoSecondMedium(hitPoint: Vector3) {
+  private normalIntoSecondMediumLocal(hitPointLocal: Vector3) {
     if (this.isPlanar()) {
       return new Vector3(0, 0, 1);
     }
 
-    const center = this.sphereCenter();
+    const center = this.sphereCenterLocal();
     return this.r < 0
-      ? hitPoint.clone().sub(center).normalize()
-      : center.clone().sub(hitPoint).normalize();
+      ? hitPointLocal.clone().sub(center).normalize()
+      : center.clone().sub(hitPointLocal).normalize();
   }
 
   /**
@@ -82,19 +106,19 @@ export default class SphericalSurface extends Surface {
    * - 구면 정의역 밖이면 null을 반환합니다.
    */
   private surfaceZAtXY(x: number, y: number) {
-    if (this.isPlanar()) return this.position.z;
+    if (this.isPlanar()) return 0;
     const rhoSq = x * x + y * y;
     const rr = this.r * this.r;
     if (rhoSq > rr) return null;
     const root = Math.sqrt(Math.max(0, rr - rhoSq));
     const sag = this.r - Math.sign(this.r || 1) * root;
-    return this.position.z + sag;
+    return sag;
   }
 
   incident(ray: Ray): Vector3 | null {
     // 현재 광선의 마지막 점에서, 진행 방향으로 표면과 만나는 첫 교점을 찾습니다.
-    const origin = ray.endPoint();
-    const direction = ray.getDirection().normalize();
+    const origin = this.worldPointToLocal(ray.endPoint());
+    const direction = this.worldDirToLocal(ray.getDirection().normalize());
     const minT = 1e-6; // 자기 자신과의 수치적 재충돌 방지
     const onSurfaceTol = TORIC_ON_SURFACE_TOL_MM;
     // ST compound(back->front) 경계에서 escape step으로 origin이 front를 미세하게
@@ -106,7 +130,7 @@ export default class SphericalSurface extends Surface {
       const dz = direction.z;
       if (!Number.isFinite(dz) || Math.abs(dz) < EPSILON) return null;
 
-      const f0 = origin.z - this.position.z;
+      const f0 = origin.z;
       if (Math.abs(f0) <= onSurfaceTol) {
         this.incidentRays.push(ray.clone());
         return origin.clone();
@@ -115,16 +139,16 @@ export default class SphericalSurface extends Surface {
         f0 > 0
         && f0 <= coincidentTol
         && direction.z > 0
-        && this.position.z <= origin.z + coincidentTol
+        && 0 <= origin.z + coincidentTol
       ) {
         this.incidentRays.push(ray.clone());
         return origin.clone();
       }
 
-      const t = (this.position.z - origin.z) / dz;
+      const t = -origin.z / dz;
       if (!Number.isFinite(t) || t < minT) return null;
 
-      const hitPoint = origin.clone().addScaledVector(direction, t);
+      const hitPoint = this.localPointToWorld(origin.clone().addScaledVector(direction, t));
       this.incidentRays.push(ray.clone());
       return hitPoint;
     }
@@ -141,14 +165,14 @@ export default class SphericalSurface extends Surface {
         f0 > 0
         && f0 <= coincidentTol
         && direction.z > 0
-        && this.position.z <= origin.z + coincidentTol
+        && 0 <= origin.z + coincidentTol
       ) {
         this.incidentRays.push(ray.clone());
         return origin.clone();
       }
     }
 
-    const center = this.sphereCenter();
+    const center = this.sphereCenterLocal();
     const oc = origin.clone().sub(center);
     const b = 2 * direction.dot(oc);
     const c = oc.lengthSq() - this.r * this.r;
@@ -164,7 +188,7 @@ export default class SphericalSurface extends Surface {
       .sort((a, b2) => a - b2);
     if (!candidates.length) return null;
 
-    const hitPoint = origin.clone().addScaledVector(direction, candidates[0]);
+    const hitPoint = this.localPointToWorld(origin.clone().addScaledVector(direction, candidates[0]));
     this.incidentRays.push(ray.clone());
     return hitPoint;
   }
@@ -174,8 +198,9 @@ export default class SphericalSurface extends Surface {
     if (!hitPoint) return null;
 
     // 스넬의 법칙 벡터형 구현
-    const incidentDir = ray.getDirection().normalize();
-    const normal = this.normalIntoSecondMedium(hitPoint);
+    const incidentDir = this.worldDirToLocal(ray.getDirection().normalize());
+    const hitPointLocal = this.worldPointToLocal(hitPoint);
+    const normal = this.normalIntoSecondMediumLocal(hitPointLocal);
 
     // 법선과 입사광의 방향이 반대면 법선을 뒤집어 "2번째 매질 방향"으로 정렬
     if (normal.dot(incidentDir) < 0) {
@@ -192,12 +217,13 @@ export default class SphericalSurface extends Surface {
 
     const cos2 = Math.sqrt(Math.max(0, 1 - sin2 * sin2));
     const tangent = incidentDir.clone().sub(normal.clone().multiplyScalar(cos1));
-    const outDirection = tangent.lengthSq() < 1e-12
+    const outDirectionLocal = tangent.lengthSq() < 1e-12
       ? incidentDir.clone()
       : normal.clone()
         .multiplyScalar(cos2)
         .add(tangent.normalize().multiplyScalar(sin2))
         .normalize();
+    const outDirection = this.localDirToWorld(outDirectionLocal);
 
     // 원본 광선을 복제해 굴절된 새 광선으로 이어붙입니다.
     const refractedRay = ray.clone();

@@ -117,6 +117,8 @@ export const PUPIL_SIZE = {
   neutral: 4,
   /** 산동 — 동공 확대 */
   dilated: 6,
+  /** 동공 미사용(차단/필터 비활성) */
+  none: 0,
 }
 
 

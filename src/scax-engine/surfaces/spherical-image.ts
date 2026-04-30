@@ -44,10 +44,16 @@ export default class SphericalImageSurface extends Surface {
     return this.hitPoints.map((point) => point.clone());
   }
 
-  incident(ray: Ray): Vector3 | null {
-    // 새 입사 계산을 시작할 때 이전 교점 기록은 초기화합니다.
+  clearHitPoints() {
     this.hitPoints = [];
+  }
 
+  public override clearTraceHistory() {
+    super.clearTraceHistory();
+    this.clearHitPoints();
+  }
+
+  incident(ray: Ray): Vector3 | null {
     const origin = ray.endPoint();
     const direction = ray.getDirection().normalize();
     const minT = 1e-6;

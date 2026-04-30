@@ -11,6 +11,7 @@ type FraunhoferLine = "g" | "F" | "e" | "d" | "C" | "r";
 
 type SturmSlice = {
   z: number;
+  depth: number;
   ratio: number;
   size: number;
   profile: {
@@ -19,6 +20,8 @@ type SturmSlice = {
     wMinor: number;
     angleMajorDeg: number;
     angleMinorDeg: number;
+    majorDirection: { x: number; y: number; z: number };
+    minorDirection: { x: number; y: number; z: number };
   };
 };
 
@@ -30,18 +33,26 @@ type SturmSlice = {
 export default class Sturm {
   private lastResult: unknown = null;
 
-  public calculate(rays: Ray[], effectiveCylinderD: number) {
-    const zRange = this.zRangeFromRays(rays);
-    const sturmSlices = this.collectSturmSlices(rays, zRange, DEFAULT_STURM_STEP_MM);
+  public calculate(rays: Ray[], effectiveCylinderD: number, axisReferenceRays?: Ray[]) {
+    const frame = this.analysisFrameFromRays(axisReferenceRays?.length ? axisReferenceRays : rays);
+    const depthRange = this.depthRangeFromRays(rays, frame);
+    const sturmSlices = this.collectSturmSlices(rays, frame, depthRange, DEFAULT_STURM_STEP_MM);
     const groupedByLine = this.groupByFraunhoferLine(rays);
     const sturmInfo = groupedByLine.map((group) => {
-      const slices = this.collectSturmSlices(group.rays, zRange, DEFAULT_STURM_STEP_MM);
+      const groupFrame = this.analysisFrameFromRays(group.rays, frame);
+      const groupDepthRange = this.depthRangeFromRays(group.rays, groupFrame);
+      const slices = this.collectSturmSlices(group.rays, groupFrame, groupDepthRange, DEFAULT_STURM_STEP_MM);
       const analysis = this.analyzeSturmSlices(slices, effectiveCylinderD);
       return {
         line: group.line,
         wavelength_nm: group.wavelength_nm,
         color: group.color,
         ray_count: group.rays.length,
+        analysis_axis: {
+          x: groupFrame.axis.x,
+          y: groupFrame.axis.y,
+          z: groupFrame.axis.z,
+        },
         ...analysis,
       };
     });
@@ -70,47 +81,89 @@ export default class Sturm {
 
   private readonly lineOrder: FraunhoferLine[] = ["g", "F", "e", "d", "C", "r"];
 
-  private sampleRayPointAtZ(ray: Ray, z: number) {
+  private analysisFrameFromRays(
+    rays: Ray[],
+    fallback?: { origin: Vector3; axis: Vector3; u: Vector3; v: Vector3 },
+  ) {
+    const axis = new Vector3();
+    for (const ray of rays ?? []) axis.add(ray.getDirection());
+    if (axis.lengthSq() < 1e-12) {
+      if (fallback) return fallback;
+      axis.set(0, 0, 1);
+    } else {
+      axis.normalize();
+    }
+
+    const origin = new Vector3(0, 0, 0);
+    let helper = new Vector3(0, 1, 0);
+    if (Math.abs(helper.dot(axis)) > 0.95) helper = new Vector3(1, 0, 0);
+    const u = helper.clone().cross(axis).normalize();
+    const v = axis.clone().cross(u).normalize();
+    return { origin, axis, u, v };
+  }
+
+  private sampleRayPointAtDepth(
+    ray: Ray,
+    frame: { origin: Vector3; axis: Vector3 },
+    depth: number,
+  ) {
     const points = this.getRayPoints(ray);
     for (let i = 0; i < points.length - 1; i += 1) {
       const a = points[i];
       const b = points[i + 1];
-      if ((a.z <= z && z <= b.z) || (b.z <= z && z <= a.z)) {
-        const dz = b.z - a.z;
-        if (Math.abs(dz) < 1e-10) return null;
-        return a.clone().lerp(b, (z - a.z) / dz);
+      const da = a.clone().sub(frame.origin).dot(frame.axis);
+      const db = b.clone().sub(frame.origin).dot(frame.axis);
+      if ((da <= depth && depth <= db) || (db <= depth && depth <= da)) {
+        const denom = db - da;
+        if (Math.abs(denom) < 1e-10) return null;
+        return a.clone().lerp(b, (depth - da) / denom);
       }
     }
     return null;
   }
 
-  private zRangeFromRays(rays: Ray[]) {
-    let zMin = Number.POSITIVE_INFINITY;
-    let zMax = Number.NEGATIVE_INFINITY;
+  private depthRangeFromRays(rays: Ray[], frame: { origin: Vector3; axis: Vector3 }) {
+    let depthMin = Number.POSITIVE_INFINITY;
+    let depthMax = Number.NEGATIVE_INFINITY;
     for (const ray of rays ?? []) {
       for (const point of this.getRayPoints(ray)) {
-        zMin = Math.min(zMin, point.z);
-        zMax = Math.max(zMax, point.z);
+        const d = point.clone().sub(frame.origin).dot(frame.axis);
+        depthMin = Math.min(depthMin, d);
+        depthMax = Math.max(depthMax, d);
       }
     }
-    if (!Number.isFinite(zMin) || !Number.isFinite(zMax) || zMax <= zMin) return null;
-    return { zMin, zMax };
+    if (!Number.isFinite(depthMin) || !Number.isFinite(depthMax) || depthMax <= depthMin) return null;
+    return { depthMin, depthMax };
   }
 
-  private secondMomentProfileAtZ(rays: Ray[], z: number) {
+  private secondMomentProfileAtDepth(
+    rays: Ray[],
+    frame: { origin: Vector3; axis: Vector3; u: Vector3; v: Vector3 },
+    depth: number,
+  ) {
     const points: Vector3[] = [];
     for (const ray of rays) {
-      const point = this.sampleRayPointAtZ(ray, z);
+      const point = this.sampleRayPointAtDepth(ray, frame, depth);
       if (point) points.push(point);
     }
     if (points.length < 4) return null;
 
+    let cxWorld = 0;
+    let cyWorld = 0;
+    let czWorld = 0;
     let cx = 0;
     let cy = 0;
     for (const p of points) {
-      cx += p.x;
-      cy += p.y;
+      cxWorld += p.x;
+      cyWorld += p.y;
+      czWorld += p.z;
+      const delta = p.clone().sub(frame.origin);
+      cx += delta.dot(frame.u);
+      cy += delta.dot(frame.v);
     }
+    cxWorld /= points.length;
+    cyWorld /= points.length;
+    czWorld /= points.length;
     cx /= points.length;
     cy /= points.length;
 
@@ -118,8 +171,11 @@ export default class Sturm {
     let syy = 0;
     let sxy = 0;
     for (const p of points) {
-      const dx = p.x - cx;
-      const dy = p.y - cy;
+      const delta = p.clone().sub(frame.origin);
+      const x = delta.dot(frame.u);
+      const y = delta.dot(frame.v);
+      const dx = x - cx;
+      const dy = y - cy;
       sxx += dx * dx;
       syy += dy * dy;
       sxy += dx * dy;
@@ -135,24 +191,46 @@ export default class Sturm {
     const lambdaMinor = Math.max(0, trace / 2 - root);
     const thetaRad = 0.5 * Math.atan2(2 * sxy, sxx - syy);
     const angleMajorDeg = ((thetaRad * 180) / Math.PI + 360) % 180;
+    const majorDirection = frame.u.clone().multiplyScalar(Math.cos(thetaRad))
+      .add(frame.v.clone().multiplyScalar(Math.sin(thetaRad)))
+      .normalize();
+    const minorDirection = frame.axis.clone().cross(majorDirection).normalize();
 
     return {
-      at: { x: cx, y: cy, z },
+      at: { x: cxWorld, y: cyWorld, z: czWorld },
       wMajor: Math.sqrt(lambdaMajor),
       wMinor: Math.sqrt(lambdaMinor),
       angleMajorDeg,
       angleMinorDeg: (angleMajorDeg + 90) % 180,
+      majorDirection: {
+        x: majorDirection.x,
+        y: majorDirection.y,
+        z: majorDirection.z,
+      },
+      minorDirection: {
+        x: minorDirection.x,
+        y: minorDirection.y,
+        z: minorDirection.z,
+      },
     };
   }
 
-  private collectSturmSlices(rays: Ray[], zRange: { zMin: number; zMax: number } | null, stepMm: number): SturmSlice[] {
-    if (!zRange) return [];
+  private collectSturmSlices(
+    rays: Ray[],
+    frame: { origin: Vector3; axis: Vector3; u: Vector3; v: Vector3 },
+    depthRange: { depthMin: number; depthMax: number } | null,
+    stepMm: number,
+  ): SturmSlice[] {
+    if (!depthRange) return [];
     const out: SturmSlice[] = [];
-    for (let z = zRange.zMin; z <= zRange.zMax; z += stepMm) {
-      const profile = this.secondMomentProfileAtZ(rays, z);
+    for (let depth = depthRange.depthMin; depth <= depthRange.depthMax; depth += stepMm) {
+      const profile = this.secondMomentProfileAtDepth(rays, frame, depth);
       if (!profile) continue;
       out.push({
-        z,
+        // Keep z in world coordinates for backward-compatible consumers.
+        z: profile.at.z,
+        // Preserve analysis-axis depth for off-axis robust ranking/interval logic.
+        depth,
         ratio: profile.wMinor / Math.max(profile.wMajor, 1e-9),
         size: Math.hypot(profile.wMajor, profile.wMinor),
         profile,
@@ -230,7 +308,7 @@ export default class Sturm {
     if (sortedByFlatness.length > 0) {
       const first = sortedByFlatness[0];
       const second = sortedByFlatness.find((candidate) => (
-        Math.abs(candidate.z - first.z) >= top2MinGapMm
+        Math.abs(candidate.depth - first.depth) >= top2MinGapMm
         && this.axisDiffDeg(candidate.profile.angleMajorDeg, first.profile.angleMajorDeg) >= top2MinAngleGapDeg
       ));
       flattestTop2 = second ? [first, second] : [first];

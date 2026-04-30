@@ -2,7 +2,7 @@ import { LitElement, css, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { SCAXEngineProps } from './scax-engine';
+import { AstigmatismSummaryItem, SCAXEngineProps, SimulateResult } from './scax-engine';
 import SCAXEngine from './scax-engine/scax-engine';
 
 const TAG = '[scax-wc]';
@@ -18,8 +18,31 @@ type ScaxRenderConfig = Omit<SCAXEngineProps, 'lens'> & {
 
 type CameraProjection = 'perspective' | 'orthogonal';
 
+type CameraPosition = {
+  x?: number;
+  y?: number;
+  z?: number;
+};
+
+type CameraLookAt = {
+  x?: number;
+  y?: number;
+  z?: number;
+};
+
 type CameraRenderOptions = {
   projection?: CameraProjection;
+  position?: CameraPosition;
+  lookAt?: CameraLookAt;
+  enableZoom?: boolean;
+  enablePan?: boolean;
+  enableRotate?: boolean;
+  autoFit?: boolean;
+};
+
+type CameraPose = {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
 };
 
 function isCameraProjection(value: unknown): value is CameraProjection {
@@ -79,6 +102,12 @@ export function parseConfigAttribute(raw: string | null): ScaxRenderConfig {
 export function defaultCameraOptions(): CameraRenderOptions {
   return {
     projection: 'perspective',
+    position: { x: 120, y: 120, z: -80 },
+    lookAt: { x: 0, y: 0, z: 0 },
+    enableZoom: true,
+    enablePan: true,
+    enableRotate: true,
+    autoFit: false,
   };
 }
 
@@ -87,26 +116,31 @@ export function mergeCameraOptions(
 ): CameraRenderOptions {
   const base = defaultCameraOptions();
   if (!partial) return base;
+  const position = partial.position;
+  const lookAt = partial.lookAt;
+  const x = Number(position?.x);
+  const y = Number(position?.y);
+  const z = Number(position?.z);
+  const lookAtX = Number(lookAt?.x);
+  const lookAtY = Number(lookAt?.y);
+  const lookAtZ = Number(lookAt?.z);
   return {
     projection: isCameraProjection(partial.projection) ? partial.projection : base.projection,
+    position: {
+      x: Number.isFinite(x) ? x : base.position?.x,
+      y: Number.isFinite(y) ? y : base.position?.y,
+      z: Number.isFinite(z) ? z : base.position?.z,
+    },
+    lookAt: {
+      x: Number.isFinite(lookAtX) ? lookAtX : base.lookAt?.x,
+      y: Number.isFinite(lookAtY) ? lookAtY : base.lookAt?.y,
+      z: Number.isFinite(lookAtZ) ? lookAtZ : base.lookAt?.z,
+    },
+    enableZoom: partial.enableZoom ?? base.enableZoom,
+    enablePan: partial.enablePan ?? base.enablePan,
+    enableRotate: partial.enableRotate ?? base.enableRotate,
+    autoFit: partial.autoFit ?? base.autoFit,
   };
-}
-
-export function parseCameraAttribute(raw: string | null): CameraRenderOptions {
-  if (raw == null || raw.trim() === '') {
-    return defaultCameraOptions();
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      console.warn(`${TAG} "camera" must be a JSON object. Got:`, raw);
-      return defaultCameraOptions();
-    }
-    return mergeCameraOptions(parsed as Partial<CameraRenderOptions>);
-  } catch {
-    console.warn(`${TAG} Failed to parse JSON "camera", using defaults. Raw:`, raw);
-    return defaultCameraOptions();
-  }
 }
 
 type SurfaceLike = {
@@ -149,13 +183,6 @@ type RayLike = {
   endPoint?: () => THREE.Vector3;
 };
 
-type AffinePair = {
-  sx: number;
-  sy: number;
-  tx: number;
-  ty: number;
-};
-
 type AffineResultLike = {
   a: number;
   b: number;
@@ -169,12 +196,19 @@ type AffineResultLike = {
   residuals?: Array<{ magnitude?: number }>;
 };
 
-const COLOR_CORNEA_PRIMARY = 0x10b981;
-const COLOR_CORNEA_SECONDARY = 0xf59e0b;
-const COLOR_CORNEA_BASE_PRIMARY = 0x38bdf8;
-const COLOR_CORNEA_BASE_SECONDARY = 0xe879f9;
-const COLOR_LENS_PRIMARY = 0x14b8a6;
-const COLOR_LENS_SECONDARY = 0x8b5cf6;
+// Compound(astigmatic focal) palette: stronger power -> nearer focal plane.
+const COLOR_COMPOUND_STRONG_NEAR = 0xf59e0b;
+const COLOR_COMPOUND_WEAK_FAR = 0x06b6d4;
+// Eye meridian palette (must differ from compound/lens).
+
+const COLOR_EYE_BASE_PRIMARY = 0x38bdf8;
+const COLOR_EYE_BASE_SECONDARY = 0xf472b6;
+// Spectacle lens meridian palette (non cross-cylinder).
+const COLOR_LENS_PRIMARY = 0x3b82f6;
+const COLOR_LENS_SECONDARY = 0xec4899;
+// Cross-cylinder dedicated palette (separate from all above).
+const COLOR_LENS_CROSS_PRIMARY = 0xef4444;
+const COLOR_LENS_CROSS_SECONDARY = 0xffffff;
 const COLOR_LENS_CROSS_PLUS_MARKER = 0xef4444;
 const COLOR_LENS_CROSS_MINUS_MARKER = 0xffffff;
 const COLOR_LENS_CROSS_BISECTOR = 0x000000;
@@ -231,6 +265,12 @@ function angleDistance180(aDeg: number, bDeg: number): number {
   const b = normalizeAxis180(bDeg);
   const diff = Math.abs(a - b);
   return Math.min(diff, 180 - diff);
+}
+
+function taboToDeg(taboDeg: number): number {
+  const tabo = Number(taboDeg);
+  if (!Number.isFinite(tabo)) return 0;
+  return (((180 - tabo) % 180) + 180) % 180;
 }
 
 function createOrientedLineObject(
@@ -365,9 +405,12 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
   );
 
   if (type === 'compound') {
-    const parts = [surface.front, surface.back].filter((part): part is SurfaceLike =>
-      Boolean(part),
-    );
+    const parts = [
+      surface.front,
+      surface.back,
+      (surface as SurfaceLike & { toricSurface?: SurfaceLike }).toricSurface,
+      (surface as SurfaceLike & { sphericalSurface?: SurfaceLike }).sphericalSurface,
+    ].filter((part): part is SurfaceLike => Boolean(part));
     return parts.flatMap((part) =>
       buildGeometryForSurface(
         part,
@@ -543,6 +586,22 @@ function buildSurfacePointSampler(
   return null;
 }
 
+function pickAnteriorRenderableSurface(surface: SurfaceLike): SurfaceLike {
+  const type = String(surface.type ?? '').toLowerCase();
+  if (type !== 'compound') return surface;
+  const candidates = [
+    surface.front,
+    (surface as SurfaceLike & { toricSurface?: SurfaceLike }).toricSurface,
+    (surface as SurfaceLike & { sphericalSurface?: SurfaceLike }).sphericalSurface,
+    surface.back,
+  ].filter((part): part is SurfaceLike => Boolean(part));
+  const renderable = candidates.filter((part) => Boolean(buildSurfacePointSampler(part)));
+  if (!renderable.length) return surface;
+  return renderable.reduce((best, current) =>
+    readSurfacePosition(current).z < readSurfacePosition(best).z ? current : best,
+  );
+}
+
 function buildClosedPairGeometry(
   front: SurfaceLike,
   back: SurfaceLike,
@@ -617,8 +676,9 @@ export function buildSurfaceMeshes(
   const meshes: THREE.Object3D[] = [];
   const consumed = new Set<number>();
   const findPairIndex = (targetName: string) =>
-    surfaces.findIndex((surface, index) =>
-      !consumed.has(index) && String(surface?.name ?? '').toLowerCase() === targetName,
+    surfaces.findIndex(
+      (surface, index) =>
+        !consumed.has(index) && String(surface?.name ?? '').toLowerCase() === targetName,
     );
 
   for (let index = 0; index < surfaces.length; index += 1) {
@@ -673,10 +733,7 @@ export function buildSurfaceMeshes(
       }
     }
 
-    const buffers = buildGeometryForSurface(
-      surface,
-      baseRadius,
-    );
+    const buffers = buildGeometryForSurface(surface, baseRadius);
 
     for (let bufferIndex = 0; bufferIndex < buffers.length; bufferIndex += 1) {
       const buffer = buffers[bufferIndex];
@@ -743,46 +800,8 @@ export function buildLightSourceObjects(sourceRays: unknown[]): THREE.Object3D[]
   });
 }
 
-export function buildSturmObjects(sturmInfo: SturmInfoLike[]): THREE.Object3D[] {
-  const objects: THREE.Object3D[] = [];
-  const corneaDiameterMm = 11.6;
-
-  for (const item of sturmInfo) {
-    const itemColor = Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa;
-    const approxCenterPoint = toFinitePoint(item?.approx_center);
-    const profiles = [item?.anterior?.profile, item?.posterior?.profile];
-
-    for (const profile of profiles) {
-      const center = toFinitePoint(profile?.at);
-      const angleDeg = Number(profile?.angleMajorDeg);
-      if (!center || !Number.isFinite(angleDeg)) continue;
-      if (!item.has_astigmatism) continue;
-      objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, itemColor));
-    }
-
-    if (approxCenterPoint) {
-      const markerGeometry = new THREE.SphereGeometry(0.7, 16, 12);
-      const markerMaterial = new THREE.MeshStandardMaterial({
-        color: itemColor,
-        emissive: itemColor,
-        emissiveIntensity: 0.2,
-        metalness: 0.05,
-        roughness: 0.4,
-      });
-      const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-      marker.position.copy(approxCenterPoint);
-      objects.push(marker);
-    }
-  }
-
-  return objects;
-}
-
 @customElement('scax-wc')
 export class ScaxWc extends LitElement {
-  private static readonly CAMERA_BASE_POSITION = new THREE.Vector3(29, 13, -38);
-  private static readonly CAMERA_TARGET = new THREE.Vector3(0, 0, 2);
-
   static styles = css`
     :host {
       display: block;
@@ -800,7 +819,6 @@ export class ScaxWc extends LitElement {
       width: 100%;
       height: 100%;
     }
-
   `;
 
   /**
@@ -823,22 +841,17 @@ export class ScaxWc extends LitElement {
   })
   config: ScaxRenderConfig = mergeScaxConfig({});
 
-  @property({
-    attribute: 'camera',
-    type: String,
-    converter: {
-      fromAttribute(value: string | null): CameraRenderOptions {
-        return parseCameraAttribute(value);
-      },
-      toAttribute(value: CameraRenderOptions): string {
-        return JSON.stringify(value);
-      },
-    },
-  })
-  camera: CameraRenderOptions = mergeCameraOptions({});
+  @property({ attribute: 'projection' })
+  projection?: CameraProjection;
 
-  @property({ attribute: 'orbit-control-enabled', type: Boolean })
-  orbitControlEnabled = true;
+  @property({ attribute: 'enable-zoom', type: Boolean })
+  enableZoom?: boolean;
+
+  @property({ attribute: 'enable-pan', type: Boolean })
+  enablePan?: boolean;
+
+  @property({ attribute: 'enable-rotate', type: Boolean })
+  enableRotate?: boolean;
 
   private scene?: THREE.Scene;
   private viewCamera?: THREE.PerspectiveCamera | THREE.OrthographicCamera;
@@ -857,73 +870,34 @@ export class ScaxWc extends LitElement {
   private lastAffineResult: AffineResultLike | null = null;
 
   render() {
-    return html`
-      <div id="canvas-root">
-      </div>
-    `;
+    return html` <div id="canvas-root"></div> `;
   }
 
   firstUpdated(): void {
-    const root = this.renderRoot.querySelector('#canvas-root') as HTMLDivElement | null;
-    if (!root) return;
-
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#0f172a');
-
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setSize(root.clientWidth, root.clientHeight);
-    root.append(this.renderer.domElement);
-    this.initializeCameraAndControls(root);
-
-    const light = new THREE.DirectionalLight('#ffffff', 0.8);
-    light.position.set(80, -60, 100);
-    this.scene.add(light);
-
-    const ambient = new THREE.AmbientLight('#ffffff', 0.7);
-    this.scene.add(ambient);
-    this.engine = new SCAXEngine(this.config);
-    this.simulateAndRebuild();
-
+    this.bootstrapScene();
+    this.bootstrapEngine();
+    this.refreshSimulationScene();
     window.addEventListener('resize', this.handleResize);
-    this.renderLoop();
+    this.startRenderLoop();
   }
 
   protected updated(changed: Map<string, unknown>): void {
-    if (changed.has('camera')) {
+    if (changed.has('projection')) {
       this.rebuildCameraFromOptions();
     }
-    if (changed.has('orbitControlEnabled')) {
+    if (changed.has('enableZoom') || changed.has('enablePan') || changed.has('enableRotate')) {
       this.applyOrbitControlState();
     }
     if (!changed.has('config')) return;
     if (!this.scene) return;
 
-    if (!this.engine) {
-      this.engine = new SCAXEngine(this.config);
-    } else {
-      this.engine.update(this.config);
-    }
-
-    this.simulateAndRebuild();
+    this.syncEngineConfig();
+    this.refreshSimulationScene();
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
-
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId);
-    }
-
-    window.removeEventListener('resize', this.handleResize);
-
-    this.clearSceneObjects(this.surfaceMeshes);
-    this.clearSceneObjects(this.rayObjects);
-    this.clearSceneObjects(this.lightSourceObjects);
-    this.clearSceneObjects(this.sturmObjects);
-    this.clearSceneObjects(this.meridianObjects);
-    this.controls?.dispose();
-    this.renderer?.dispose();
+    this.teardownScene();
   }
 
   private renderLoop = () => {
@@ -933,11 +907,84 @@ export class ScaxWc extends LitElement {
     this.animationId = requestAnimationFrame(this.renderLoop);
   };
 
-  /**
-   * config 반영 후 simulate를 실행하고 surface mesh를 다시 만든다.
-   */
-  private simulateAndRebuild() {
-    if (!this.engine) return;
+  private startRenderLoop(): void {
+    this.stopRenderLoop();
+    this.renderLoop();
+  }
+
+  private stopRenderLoop(): void {
+    if (this.animationId === undefined) return;
+    cancelAnimationFrame(this.animationId);
+    this.animationId = undefined;
+  }
+
+  private bootstrapScene(): void {
+    const root = this.getCanvasRoot();
+    if (!root) return;
+    this.scene = this.createScene();
+    this.renderer = this.createRenderer(root);
+    this.initializeCameraAndControls(root);
+    this.addDefaultLights();
+  }
+
+  private getCanvasRoot(): HTMLDivElement | null {
+    return this.renderRoot.querySelector('#canvas-root') as HTMLDivElement | null;
+  }
+
+  private createScene(): THREE.Scene {
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#0f172a');
+    return scene;
+  }
+
+  private createRenderer(root: HTMLDivElement): THREE.WebGLRenderer {
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(root.clientWidth, root.clientHeight);
+    root.append(renderer.domElement);
+    return renderer;
+  }
+
+  private addDefaultLights(): void {
+    if (!this.scene) return;
+    const directional = new THREE.DirectionalLight('#ffffff', 0.8);
+    directional.position.set(80, -60, 100);
+    const ambient = new THREE.AmbientLight('#ffffff', 0.7);
+    this.scene.add(ambient, directional);
+  }
+
+  private bootstrapEngine(): void {
+    this.engine = new SCAXEngine(this.config);
+  }
+
+  private syncEngineConfig(): void {
+    if (!this.engine) {
+      this.bootstrapEngine();
+      return;
+    }
+    this.engine.update(this.config);
+  }
+
+  private refreshSimulationScene(): void {
+    const simulationData = this.runSimulationPipeline();
+    if (!simulationData) return;
+    this.rebuildSceneMeshes(
+      simulationData.tracedRays,
+      simulationData.sourceRays,
+      simulationData.sturmInfo,
+      simulationData.lensAstigmatism,
+      simulationData.combinedAstigmatism,
+    );
+  }
+
+  private runSimulationPipeline(): {
+    tracedRays: unknown[];
+    sourceRays: unknown[];
+    sturmInfo: SturmInfoLike[];
+    lensAstigmatism: AstigmatismSummaryItem[];
+    combinedAstigmatism: AstigmatismSummaryItem;
+  } | null {
+    if (!this.engine) return null;
     const simulationResult = this.engine.simulate();
     this.lastSimulationResult = simulationResult;
     const tracedRays = Array.isArray(simulationResult?.traced_rays)
@@ -948,10 +995,40 @@ export class ScaxWc extends LitElement {
     const sturmInfo = Array.isArray((sturmResult as { sturm_info?: unknown[] } | null)?.sturm_info)
       ? ((sturmResult as { sturm_info?: unknown[] }).sturm_info as SturmInfoLike[])
       : [];
-    this.lastAffineResult = this.calculateAffineResult(tracedRays);
-    const state = this.engine as unknown as EngineStateLike;
-    const sourceRays = state.light_source?.emitRays?.() ?? [];
-    this.rebuildSceneMeshes(tracedRays, sourceRays, sturmInfo);
+    const lensAstigmatism = Array.isArray(
+      (simulationResult as SimulateResult | null)?.info?.astigmatism?.lens,
+    )
+      ? ((simulationResult as SimulateResult).info.astigmatism.lens ?? [])
+      : [];
+    const combinedAstigmatism = Array.isArray(
+      (simulationResult as SimulateResult | null)?.info?.astigmatism?.combined?.[0],
+    )
+      ? ((simulationResult as SimulateResult).info.astigmatism.combined?.[0] ?? [])
+      : [];
+    this.lastAffineResult = this.calculateAffineResult();
+    // traced ray의 첫 점은 엔진의 광원 pose(position/tilt)가 반영된 실제 발광 위치입니다.
+    const sourceRays = tracedRays;
+    return { tracedRays, sourceRays, sturmInfo, lensAstigmatism, combinedAstigmatism };
+  }
+
+  private teardownScene(): void {
+    this.stopRenderLoop();
+    window.removeEventListener('resize', this.handleResize);
+    this.clearAllRenderableGroups();
+    this.controls?.dispose();
+    this.controls = undefined;
+    this.renderer?.dispose();
+    this.renderer = undefined;
+    this.viewCamera = undefined;
+    this.scene = undefined;
+  }
+
+  private clearAllRenderableGroups(): void {
+    this.clearSceneObjects(this.surfaceMeshes);
+    this.clearSceneObjects(this.rayObjects);
+    this.clearSceneObjects(this.lightSourceObjects);
+    this.clearSceneObjects(this.sturmObjects);
+    this.clearSceneObjects(this.meridianObjects);
   }
 
   public getSimulateResult<T = unknown>(): T | null {
@@ -970,14 +1047,12 @@ export class ScaxWc extends LitElement {
     tracedRays: unknown[],
     sourceRays: unknown[],
     sturmInfo: SturmInfoLike[],
+    lensAstigmatism: AstigmatismSummaryItem[],
+    combinedAstigmatism: AstigmatismSummaryItem,
   ) {
     if (!this.scene || !this.engine) return;
 
-    this.clearSceneObjects(this.surfaceMeshes);
-    this.clearSceneObjects(this.rayObjects);
-    this.clearSceneObjects(this.lightSourceObjects);
-    this.clearSceneObjects(this.sturmObjects);
-    this.clearSceneObjects(this.meridianObjects);
+    this.clearAllRenderableGroups();
 
     const state = this.engine as unknown as EngineStateLike;
     const lensSurfaces = Array.isArray(state.lens) ? state.lens : [];
@@ -991,10 +1066,11 @@ export class ScaxWc extends LitElement {
     const corneaSurface = eyeSurfaces.find(
       (surface) => String(surface?.name ?? '').toLowerCase() === 'eye_st',
     );
-    const corneaAstigSurface =
-      String(corneaSurface?.type ?? '').toLowerCase() === 'compound'
-        ? (corneaSurface?.front ?? corneaSurface?.back ?? corneaSurface)
-        : corneaSurface;
+    const corneaAstigSurface = corneaSurface
+      ? String(corneaSurface.type ?? '').toLowerCase() === 'compound'
+        ? pickAnteriorRenderableSurface(corneaSurface)
+        : corneaSurface
+      : undefined;
     const baseCorneaAxis = Number(corneaAstigSurface?.ax ?? 0);
     const firstAstigmaticSturm = sturmInfo.find((item) => Boolean(item?.has_astigmatism));
     const inducedAxisFromSturm = Number(
@@ -1003,9 +1079,21 @@ export class ScaxWc extends LitElement {
     );
     const hasInsertedLens = lensSurfaces.length > 0;
     const hasInducedAstigmatism = hasInsertedLens && Number.isFinite(inducedAxisFromSturm);
-    const activeCorneaAxis = hasInducedAstigmatism
+    const activeCorneaAxisFromSturm = hasInducedAstigmatism
       ? normalizeAxis180(inducedAxisFromSturm + 90)
       : normalizeAxis180(baseCorneaAxis);
+    const combinedMeridians = combinedAstigmatism.filter(
+      (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
+    );
+    const [combinedWeakMeridian, combinedStrongMeridian] = [...combinedMeridians].sort(
+      (a, b) => Number(a.d) - Number(b.d),
+    );
+    const combinedWeakAxis = Number.isFinite(Number(combinedWeakMeridian?.tabo))
+      ? normalizeAxis180(taboToDeg(Number(combinedWeakMeridian?.tabo)))
+      : activeCorneaAxisFromSturm;
+    const combinedStrongAxis = Number.isFinite(Number(combinedStrongMeridian?.tabo))
+      ? normalizeAxis180(taboToDeg(Number(combinedStrongMeridian?.tabo)))
+      : normalizeAxis180(combinedWeakAxis + 90);
 
     const lensRadiusBySurface = new Map<SurfaceLike, number>();
     const configLenses = Array.isArray(this.config?.lens) ? this.config.lens : [];
@@ -1022,11 +1110,6 @@ export class ScaxWc extends LitElement {
     for (const mesh of this.surfaceMeshes) {
       this.scene.add(mesh);
     }
-    if (!this.hasInitialCameraFit) {
-      this.fitCameraToObjects(this.surfaceMeshes);
-      this.hasInitialCameraFit = true;
-    }
-
     this.rayObjects = buildRayObjects(tracedRays);
     for (const object of this.rayObjects) {
       this.scene.add(object);
@@ -1037,7 +1120,7 @@ export class ScaxWc extends LitElement {
       this.scene.add(object);
     }
 
-    this.sturmObjects = this.buildSturmObjectsWithCorneaAxis(sturmInfo, activeCorneaAxis);
+    this.sturmObjects = this.buildSturmObject(sturmInfo, combinedAstigmatism);
     for (const object of this.sturmObjects) {
       this.scene.add(object);
     }
@@ -1048,49 +1131,70 @@ export class ScaxWc extends LitElement {
       if (!surface) continue;
       const lensConfig = configLenses[lensIndex] ?? null;
       const lensType = String(lensConfig?.type ?? 'lens').toLowerCase();
-      const parts =
-        String(surface.type ?? '').toLowerCase() === 'compound'
-          ? [surface.front].filter((part): part is SurfaceLike => Boolean(part))
-          : [surface];
+      const parts = [pickAnteriorRenderableSurface(surface)];
+      const simulatedMeridians = Array.isArray(lensAstigmatism[lensIndex])
+        ? lensAstigmatism[lensIndex].filter(
+            (item): item is AstigmatismSummaryItem[number] =>
+              Boolean(item) &&
+              Number.isFinite(Number(item.d)) &&
+              Number.isFinite(Number(item.tabo)),
+          )
+        : [];
+      const [simWeakMeridian, simStrongMeridian] = [...simulatedMeridians].sort(
+        (a, b) => Number(a.d) - Number(b.d),
+      );
       for (const part of parts) {
-        const axisDeg = Number(part.ax ?? surface.ax ?? 0);
+        const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
+          ? taboToDeg(Number(simWeakMeridian?.tabo))
+          : Number(part.ax ?? surface.ax ?? 0);
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
-        const weakMeridianPower = Number(lensConfig?.s ?? 0);
-        const strongMeridianPower = weakMeridianPower + Number(lensConfig?.c ?? 0);
-        const plusAxis = weakMeridianPower >= strongMeridianPower ? axisDeg : axisDeg + 90;
-        const minusAxis = weakMeridianPower < strongMeridianPower ? axisDeg : axisDeg + 90;
+        const weakMeridianPower = Number.isFinite(Number(simWeakMeridian?.d))
+          ? Number(simWeakMeridian?.d)
+          : Number(lensConfig?.s ?? 0);
+        const strongMeridianPower = Number.isFinite(Number(simStrongMeridian?.d))
+          ? Number(simStrongMeridian?.d)
+          : weakMeridianPower + Number(lensConfig?.c ?? 0);
+        let plusAxis = weakMeridianPower >= strongMeridianPower ? axisDeg : axisDeg + 90;
+        let minusAxis = weakMeridianPower < strongMeridianPower ? axisDeg : axisDeg + 90;
 
         if (lensType === 'cross-cylinder') {
-          const plusLine = this.createMeridianLine(
-            part,
-            plusAxis,
-            halfLength,
-            COLOR_LENS_PRIMARY,
-            LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
-          );
-          const minusLine = this.createMeridianLine(
-            part,
-            minusAxis,
-            halfLength,
-            COLOR_LENS_SECONDARY,
-            LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
-          );
-          const bisectorA = this.createMeridianLine(
+          const configuredAxisDeg = Number(lensConfig?.ax ?? part.ax ?? surface.ax ?? 0);
+          const configuredAxisPower = Number(lensConfig?.s ?? 0);
+          const configuredOrthogonalPower = configuredAxisPower + Number(lensConfig?.c ?? 0);
+          const axisHasPlus = configuredAxisPower > 0;
+          const orthogonalHasPlus = configuredOrthogonalPower > 0;
+          const axisHasMinus = configuredAxisPower < 0;
+          const orthogonalHasMinus = configuredOrthogonalPower < 0;
+
+          // Cross-cylinder: marker polarity should follow meridian sign (+/-), not strong/weak ordering.
+          if (axisHasPlus !== orthogonalHasPlus && axisHasMinus !== orthogonalHasMinus) {
+            plusAxis = axisHasPlus ? configuredAxisDeg : configuredAxisDeg + 90;
+            minusAxis = axisHasMinus ? configuredAxisDeg : configuredAxisDeg + 90;
+          } else {
+            plusAxis =
+              configuredAxisPower >= configuredOrthogonalPower
+                ? configuredAxisDeg
+                : configuredAxisDeg + 90;
+            minusAxis =
+              configuredAxisPower < configuredOrthogonalPower
+                ? configuredAxisDeg
+                : configuredAxisDeg + 90;
+          }
+
+          const bisectorA = this.createMeridianDashedLine(
             part,
             plusAxis + 45,
             halfLength,
             COLOR_LENS_CROSS_BISECTOR,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
           );
-          const bisectorB = this.createMeridianLine(
+          const bisectorB = this.createMeridianDashedLine(
             part,
             plusAxis + 135,
             halfLength,
             COLOR_LENS_CROSS_BISECTOR,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
           );
-          if (plusLine) meridianObjects.push(plusLine);
-          if (minusLine) meridianObjects.push(minusLine);
           if (bisectorA) meridianObjects.push(bisectorA);
           if (bisectorB) meridianObjects.push(bisectorB);
           meridianObjects.push(
@@ -1111,6 +1215,24 @@ export class ScaxWc extends LitElement {
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
+          meridianObjects.push(
+            ...this.createMeridianEndpointMarkers(
+              part,
+              plusAxis + 45,
+              halfLength,
+              COLOR_LENS_CROSS_BISECTOR,
+              LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+            ),
+          );
+          meridianObjects.push(
+            ...this.createMeridianEndpointMarkers(
+              part,
+              plusAxis + 135,
+              halfLength,
+              COLOR_LENS_CROSS_BISECTOR,
+              LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+            ),
+          );
           continue;
         }
 
@@ -1118,14 +1240,14 @@ export class ScaxWc extends LitElement {
           part,
           axisDeg,
           halfLength,
-          COLOR_LENS_PRIMARY,
+          COLOR_LENS_SECONDARY,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const minor = this.createMeridianLine(
           part,
           axisDeg + 90,
           halfLength,
-          COLOR_LENS_SECONDARY,
+          COLOR_LENS_PRIMARY,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (major) meridianObjects.push(major);
@@ -1137,34 +1259,34 @@ export class ScaxWc extends LitElement {
       const halfLength = Math.max(2.5, estimateSurfaceRadius(corneaAstigSurface) * 0.9);
       const activeMajor = this.createMeridianLine(
         corneaAstigSurface,
-        activeCorneaAxis,
+        combinedWeakAxis,
         halfLength,
-        COLOR_CORNEA_PRIMARY,
+        COLOR_COMPOUND_WEAK_FAR,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       const activeMinor = this.createMeridianLine(
         corneaAstigSurface,
-        activeCorneaAxis + 90,
+        combinedStrongAxis,
         halfLength,
-        COLOR_CORNEA_SECONDARY,
+        COLOR_COMPOUND_STRONG_NEAR,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       if (activeMajor) meridianObjects.push(activeMajor);
       if (activeMinor) meridianObjects.push(activeMinor);
 
       if (hasInducedAstigmatism) {
-        const baseMajor = this.createMeridianLine(
+        const baseMajor = this.createMeridianDashedLine(
           corneaAstigSurface,
           baseCorneaAxis,
           halfLength,
-          COLOR_CORNEA_BASE_PRIMARY,
+          COLOR_EYE_BASE_PRIMARY,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
-        const baseMinor = this.createMeridianLine(
+        const baseMinor = this.createMeridianDashedLine(
           corneaAstigSurface,
           baseCorneaAxis + 90,
           halfLength,
-          COLOR_CORNEA_BASE_SECONDARY,
+          COLOR_EYE_BASE_SECONDARY,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (baseMajor) meridianObjects.push(baseMajor);
@@ -1175,33 +1297,31 @@ export class ScaxWc extends LitElement {
     for (const line of this.meridianObjects) {
       this.scene.add(line);
     }
+
+    if ((this.getEffectiveCameraOptions().autoFit ?? false) && !this.hasInitialCameraFit) {
+      this.fitCameraToObjects(this.getCameraFitObjects());
+      this.hasInitialCameraFit = true;
+    }
   }
 
-  private calculateAffineResult(tracedRays: unknown[]): AffineResultLike | null {
-    if (!this.engine) return null;
-    const affinePairs: AffinePair[] = tracedRays
-      .map((ray) => {
-        const points = getRayPoints(ray);
-        if (!Array.isArray(points) || points.length < 2) return null;
-        const src = points[0];
-        const dst = points[points.length - 1];
-        if (!src || !dst) return null;
-        const sx = Number(src.x);
-        const sy = Number(src.y);
-        const tx = Number(dst.x);
-        const ty = Number(dst.y);
-        if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(tx) || !Number.isFinite(ty))
-          return null;
-        return { sx, sy, tx, ty };
-      })
-      .filter((pair): pair is AffinePair => pair !== null);
+  private getCameraFitObjects(): THREE.Object3D[] {
+    return [
+      ...this.surfaceMeshes,
+      ...this.rayObjects,
+      ...this.lightSourceObjects,
+      ...this.sturmObjects,
+      ...this.meridianObjects,
+    ];
+  }
 
+  private calculateAffineResult(): AffineResultLike | null {
+    if (!this.engine) return null;
     return (
       (
         this.engine as unknown as {
-          estimateAffineDistortion?: (pairs: AffinePair[]) => AffineResultLike | null;
+          getAffineAnalysis?: () => AffineResultLike | null;
         }
-      ).estimateAffineDistortion?.(affinePairs) ?? null
+      ).getAffineAnalysis?.() ?? null
     );
   }
 
@@ -1232,6 +1352,40 @@ export class ScaxWc extends LitElement {
       depthWrite: false,
     });
     const line = new THREE.Line(geometry, material);
+    line.renderOrder = 10;
+    return line;
+  }
+
+  private createMeridianDashedLine(
+    surface: SurfaceLike,
+    axisDeg: number,
+    halfLength: number,
+    color: THREE.ColorRepresentation,
+    zOffsetMm = 0,
+  ): THREE.Line | null {
+    const sampler = buildSurfacePointSampler(surface);
+    if (!sampler) return null;
+    const axisRad = (axisDeg * Math.PI) / 180;
+    const c = Math.cos(axisRad);
+    const s = Math.sin(axisRad);
+    const p0 = sampler(-c * halfLength, -s * halfLength);
+    const p1 = sampler(c * halfLength, s * halfLength);
+    if (zOffsetMm !== 0) {
+      p0.z += zOffsetMm;
+      p1.z += zOffsetMm;
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints([p0, p1]);
+    const material = new THREE.LineDashedMaterial({
+      color,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false,
+      dashSize: 0.5,
+      gapSize: 0.35,
+    });
+    const line = new THREE.Line(geometry, material);
+    line.computeLineDistances();
     line.renderOrder = 10;
     return line;
   }
@@ -1280,11 +1434,7 @@ export class ScaxWc extends LitElement {
     });
   }
 
-  private estimateSurfaceNormal(
-    surface: SurfaceLike,
-    x: number,
-    y: number,
-  ): THREE.Vector3 | null {
+  private estimateSurfaceNormal(surface: SurfaceLike, x: number, y: number): THREE.Vector3 | null {
     const sampler = buildSurfacePointSampler(surface);
     if (!sampler) return null;
     const delta = 0.08;
@@ -1353,28 +1503,59 @@ export class ScaxWc extends LitElement {
     this.controls?.update();
   }
 
-  private buildSturmObjectsWithCorneaAxis(
+  private buildSturmObject(
     sturmInfo: SturmInfoLike[],
-    corneaMeridianAxisDeg: number,
+    combinedAstigmatism: AstigmatismSummaryItem,
   ): THREE.Object3D[] {
     const objects: THREE.Object3D[] = [];
     const corneaDiameterMm = 11.6;
-    const focalForPrimary = normalizeAxis180(corneaMeridianAxisDeg + 90);
-    const focalForSecondary = normalizeAxis180(corneaMeridianAxisDeg);
+    const combinedMeridians = combinedAstigmatism.filter(
+      (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
+    );
+    const [combinedWeak, combinedStrong] = [...combinedMeridians].sort(
+      (a, b) => Number(a.d) - Number(b.d),
+    );
+    const strongAxisDeg = Number.isFinite(Number(combinedStrong?.tabo))
+      ? normalizeAxis180(taboToDeg(Number(combinedStrong?.tabo)))
+      : 0;
+    const weakAxisDeg = Number.isFinite(Number(combinedWeak?.tabo))
+      ? normalizeAxis180(taboToDeg(Number(combinedWeak?.tabo)))
+      : 90;
+    const strongFocalAxis = normalizeAxis180(strongAxisDeg + 90);
+    const weakFocalAxis = normalizeAxis180(weakAxisDeg + 90);
 
     for (const item of sturmInfo) {
       const approxCenterPoint = toFinitePoint(item?.approx_center);
       const profiles = [item?.anterior?.profile, item?.posterior?.profile];
+      const drawableProfiles = profiles
+        .map((profile) => ({
+          profile,
+          center: toFinitePoint(profile?.at),
+          angleDeg: Number(profile?.angleMajorDeg),
+        }))
+        .filter(
+          (
+            entry,
+          ): entry is {
+            profile: NonNullable<(typeof profiles)[number]>;
+            center: THREE.Vector3;
+            angleDeg: number;
+          } => Boolean(entry.profile) && Boolean(entry.center) && Number.isFinite(entry.angleDeg),
+        );
 
-      for (const profile of profiles) {
-        const center = toFinitePoint(profile?.at);
-        const angleDeg = Number(profile?.angleMajorDeg);
+      for (let profileIndex = 0; profileIndex < drawableProfiles.length; profileIndex += 1) {
+        const { center, angleDeg } = drawableProfiles[profileIndex];
         if (!center || !Number.isFinite(angleDeg)) continue;
         if (!item.has_astigmatism) continue;
-
-        const dPrimary = angleDistance180(angleDeg, focalForPrimary);
-        const dSecondary = angleDistance180(angleDeg, focalForSecondary);
-        const color = dPrimary <= dSecondary ? COLOR_CORNEA_PRIMARY : COLOR_CORNEA_SECONDARY;
+        const dStrong = angleDistance180(angleDeg, strongFocalAxis);
+        const dWeak = angleDistance180(angleDeg, weakFocalAxis);
+        let color = dStrong <= dWeak ? COLOR_COMPOUND_STRONG_NEAR : COLOR_COMPOUND_WEAK_FAR;
+        // If focal axis matching is ambiguous, keep stronger power on nearer line.
+        if (Math.abs(dStrong - dWeak) < 1e-6 && drawableProfiles.length >= 2) {
+          const nearestIndex = drawableProfiles[0].center.z <= drawableProfiles[1].center.z ? 0 : 1;
+          color =
+            profileIndex === nearestIndex ? COLOR_COMPOUND_STRONG_NEAR : COLOR_COMPOUND_WEAK_FAR;
+        }
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
@@ -1428,7 +1609,7 @@ export class ScaxWc extends LitElement {
   }
 
   private handleResize = () => {
-    const root = this.renderRoot.querySelector('#canvas-root') as HTMLDivElement | null;
+    const root = this.getCanvasRoot();
     if (!root || !this.viewCamera || !this.renderer) return;
 
     const aspect = root.clientWidth / root.clientHeight;
@@ -1446,10 +1627,15 @@ export class ScaxWc extends LitElement {
     this.renderer.setSize(root.clientWidth, root.clientHeight);
   };
 
-  private initializeCameraAndControls(root: HTMLDivElement): void {
+  private initializeCameraAndControls(
+    root: HTMLDivElement,
+    poseOverride?: CameraPose,
+    preserveViewScale = false,
+  ): void {
+    const previousCamera = this.viewCamera;
     if (!this.renderer) {
       this.viewCamera = this.createCamera(root);
-      this.applyCameraPose();
+      this.applyCameraPose(poseOverride);
       return;
     }
     this.viewCamera = this.createCamera(root);
@@ -1461,13 +1647,16 @@ export class ScaxWc extends LitElement {
     this.controls.minPolarAngle = 0.001;
     this.controls.maxPolarAngle = Math.PI - 0.001;
     this.applyOrbitControlState();
-    this.applyCameraPose();
+    this.applyCameraPose(poseOverride);
+    if (preserveViewScale) {
+      this.matchViewScaleAcrossProjectionChange(previousCamera, root, poseOverride?.target);
+    }
     this.controls.update();
   }
 
   private createCamera(root: HTMLDivElement): THREE.PerspectiveCamera | THREE.OrthographicCamera {
     const aspect = root.clientWidth / root.clientHeight;
-    const projection = this.camera.projection ?? 'perspective';
+    const projection = this.getEffectiveCameraOptions().projection ?? 'perspective';
     if (projection === 'orthogonal') {
       const frustumHalfHeight = 16;
       const frustumHalfWidth = frustumHalfHeight * aspect;
@@ -1480,13 +1669,13 @@ export class ScaxWc extends LitElement {
         2000,
       );
     }
-    return new THREE.PerspectiveCamera(55, aspect, 0.1, 2000);
+    return new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
   }
 
-  private applyCameraPose(): void {
+  private applyCameraPose(poseOverride?: CameraPose): void {
     if (!this.viewCamera) return;
-    const target = ScaxWc.CAMERA_TARGET.clone();
-    const position = ScaxWc.CAMERA_BASE_POSITION.clone();
+    const target = poseOverride?.target ?? this.getCameraLookAtFromOptions();
+    const position = poseOverride?.position ?? this.getCameraPositionFromOptions();
     this.viewCamera.position.copy(position);
     this.viewCamera.up.set(0, 1, 0);
     this.viewCamera.lookAt(target);
@@ -1495,20 +1684,90 @@ export class ScaxWc extends LitElement {
   }
 
   private rebuildCameraFromOptions(): void {
-    const root = this.renderRoot.querySelector('#canvas-root') as HTMLDivElement | null;
+    const root = this.getCanvasRoot();
     if (!root) return;
-    this.initializeCameraAndControls(root);
+    this.initializeCameraAndControls(root, this.captureCurrentCameraPose(), true);
+  }
+
+  private captureCurrentCameraPose(): CameraPose | undefined {
+    if (!this.viewCamera) return undefined;
+    return {
+      position: this.viewCamera.position.clone(),
+      target: this.controls?.target.clone() ?? this.getCameraLookAtFromOptions(),
+    };
+  }
+
+  private matchViewScaleAcrossProjectionChange(
+    previousCamera: THREE.PerspectiveCamera | THREE.OrthographicCamera | undefined,
+    root: HTMLDivElement,
+    targetOverride?: THREE.Vector3,
+  ): void {
+    if (!previousCamera || !this.viewCamera) return;
+    if (
+      !(previousCamera instanceof THREE.PerspectiveCamera) ||
+      !(this.viewCamera instanceof THREE.OrthographicCamera)
+    ) {
+      return;
+    }
+    const target = targetOverride ?? this.controls?.target ?? this.getCameraLookAtFromOptions();
+    const distance = this.viewCamera.position.distanceTo(target);
+    if (!Number.isFinite(distance) || distance <= 1e-9) return;
+    const halfHeight = Math.tan(THREE.MathUtils.degToRad(previousCamera.fov) / 2) * distance;
+    if (!Number.isFinite(halfHeight) || halfHeight <= 0) return;
+    const aspect = root.clientHeight > 0 ? root.clientWidth / root.clientHeight : 1;
+    this.viewCamera.top = halfHeight;
+    this.viewCamera.bottom = -halfHeight;
+    this.viewCamera.left = -halfHeight * aspect;
+    this.viewCamera.right = halfHeight * aspect;
+    this.viewCamera.updateProjectionMatrix();
   }
 
   private applyOrbitControlState(): void {
     if (!this.controls) return;
-    const enabled = this.orbitControlEnabled;
-    this.controls.enabled = enabled;
-    this.controls.enableZoom = enabled;
-    this.controls.enablePan = enabled;
-    this.controls.enableRotate = enabled;
+    const cameraOptions = this.getEffectiveCameraOptions();
+    const zoomEnabled = cameraOptions.enableZoom ?? true;
+    const panEnabled = cameraOptions.enablePan ?? true;
+    const rotateEnabled = cameraOptions.enableRotate ?? true;
+    this.controls.enabled = zoomEnabled || panEnabled || rotateEnabled;
+    this.controls.enableZoom = zoomEnabled;
+    this.controls.enablePan = panEnabled;
+    this.controls.enableRotate = rotateEnabled;
   }
 
+  private getCameraPositionFromOptions(): THREE.Vector3 {
+    const options = this.getEffectiveCameraOptions();
+    const x = Number(options.position?.x);
+    const y = Number(options.position?.y);
+    const z = Number(options.position?.z);
+    return new THREE.Vector3(
+      Number.isFinite(x) ? x : 120,
+      Number.isFinite(y) ? y : 120,
+      Number.isFinite(z) ? z : -80,
+    );
+  }
+
+  private getCameraLookAtFromOptions(): THREE.Vector3 {
+    const options = this.getEffectiveCameraOptions();
+    const x = Number(options.lookAt?.x);
+    const y = Number(options.lookAt?.y);
+    const z = Number(options.lookAt?.z);
+    return new THREE.Vector3(
+      Number.isFinite(x) ? x : 0,
+      Number.isFinite(y) ? y : 0,
+      Number.isFinite(z) ? z : 0,
+    );
+  }
+
+  private getEffectiveCameraOptions(): CameraRenderOptions {
+    const base = defaultCameraOptions();
+    return {
+      ...base,
+      projection: isCameraProjection(this.projection) ? this.projection : base.projection,
+      enableZoom: this.enableZoom ?? base.enableZoom,
+      enablePan: this.enablePan ?? base.enablePan,
+      enableRotate: this.enableRotate ?? base.enableRotate,
+    };
+  }
 }
 
 declare global {

@@ -1,4 +1,5 @@
 export { default as SCAXEngine } from "./scax-engine";
+export { SCAXEngineCore } from "./scax-engine";
 export { default as Ray } from "./ray/ray";
 export type { RayProps } from "./ray/ray";
 export type { AffinePair } from "./affine/affine";
@@ -7,10 +8,15 @@ export type {
   PupilType,
   LightSourceConfig,
   LensConfig,
+  EyeConfig,
   EyePowerInput,
   SCAXEngineProps,
   SCAxPower,
   InducedAstigmatism,
   InducedAstigmatismSummary,
+  AstigmatismSummaryItem,
+  PrismSummaryItem,
+  SimulationResultInfo,
   SimulateResult,
+  AffineAnalysisResult,
 } from "./scax-engine";

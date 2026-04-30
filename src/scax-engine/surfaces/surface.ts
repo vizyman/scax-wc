@@ -31,5 +31,9 @@ export default abstract class Surface {
 
   abstract refract(ray: Ray): Ray | null;
 
+  public clearTraceHistory() {
+    this.incidentRays = [];
+    this.refractedRays = [];
+  }
 
 }

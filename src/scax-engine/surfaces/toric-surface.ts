@@ -1,4 +1,4 @@
-import { Vector3 } from "three";
+import { Euler, Quaternion, Vector3 } from "three";
 import {
   FraunhoferLine,
   normalizeRefractiveIndexSpec,
@@ -23,6 +23,7 @@ export type ToricSurfaceProps = {
   tilt: { x: number, y: number };
   r_axis: number;
   r_perp: number;
+  axis_deg?: number;
   n_before: RefractiveIndexSpec;
   n_after: RefractiveIndexSpec;
 }
@@ -31,12 +32,14 @@ export default class ToricSurface extends Surface {
   private r_perp: number = 0;
   private n_before: RefractiveIndexSpec = 1.0;
   private n_after: RefractiveIndexSpec = 1.0;
+  private axisDeg: number = 0;
 
   constructor(props: ToricSurfaceProps) {
     super({ type: "toric", name: props.name, position: props.position, tilt: props.tilt });
-    const { r_axis, r_perp, n_before = 1.0, n_after = 1.0 } = props;
+    const { r_axis, r_perp, axis_deg = 0, n_before = 1.0, n_after = 1.0 } = props;
     this.r_axis = r_axis;
     this.r_perp = r_perp;
+    this.axisDeg = axis_deg;
     this.n_before = normalizeRefractiveIndexSpec(n_before);
     this.n_after = normalizeRefractiveIndexSpec(n_after);
   }
@@ -51,11 +54,35 @@ export default class ToricSurface extends Surface {
 
   /**
    * Toric 면의 축(meridian) 회전을 위해 사용하는 삼각함수 값입니다.
-   * 이 구현에서는 `tilt.y`를 축 각도(도 단위)로 사용합니다.
+   * 축(axis) 회전은 axisDeg(도 단위)를 사용합니다.
    */
   private axisTrig() {
-    const rad = (this.tilt.y * Math.PI) / 180;
+    const rad = (this.axisDeg * Math.PI) / 180;
     return { c: Math.cos(rad), s: Math.sin(rad) };
+  }
+
+  private worldQuaternion() {
+    const tiltXRad = (this.tilt.x * Math.PI) / 180;
+    const tiltYRad = (this.tilt.y * Math.PI) / 180;
+    return new Quaternion().setFromEuler(new Euler(tiltXRad, tiltYRad, 0, "XYZ"));
+  }
+
+  private worldPointToLocal(worldPoint: Vector3) {
+    const inverse = this.worldQuaternion().invert();
+    return worldPoint.clone().sub(this.position).applyQuaternion(inverse);
+  }
+
+  private localPointToWorld(localPoint: Vector3) {
+    return localPoint.clone().applyQuaternion(this.worldQuaternion()).add(this.position);
+  }
+
+  private worldDirToLocal(worldDirection: Vector3) {
+    const inverse = this.worldQuaternion().invert();
+    return worldDirection.clone().applyQuaternion(inverse).normalize();
+  }
+
+  private localDirToWorld(localDirection: Vector3) {
+    return localDirection.clone().applyQuaternion(this.worldQuaternion()).normalize();
   }
 
   /**
@@ -130,13 +157,13 @@ export default class ToricSurface extends Surface {
   }
 
   incident(ray: Ray): Vector3 | null {
-    const origin = ray.endPoint();
-    const direction = ray.getDirection().normalize();
+    const origin = this.worldPointToLocal(ray.endPoint());
+    const direction = this.worldDirToLocal(ray.getDirection().normalize());
 
     // 시작점이 이미 표면 위라면 재계산 없이 바로 반환합니다.
     const geometryAtOrigin = this.geometryAtXY(origin.x, origin.y);
     if (geometryAtOrigin) {
-      const f0 = origin.z - (this.position.z + geometryAtOrigin.sag);
+      const f0 = origin.z - geometryAtOrigin.sag;
       if (Math.abs(f0) <= TORIC_ON_SURFACE_TOL_MM) {
         this.incidentRays.push(ray.clone());
         return origin.clone();
@@ -147,7 +174,7 @@ export default class ToricSurface extends Surface {
         f0 > 0
         && f0 <= TORIC_COINCIDENT_SURFACE_TOL_MM
         && direction.z > 0
-        && this.position.z <= origin.z + TORIC_COINCIDENT_SURFACE_TOL_MM
+        && 0 <= origin.z + TORIC_COINCIDENT_SURFACE_TOL_MM
       ) {
         this.incidentRays.push(ray.clone());
         return origin.clone();
@@ -155,14 +182,14 @@ export default class ToricSurface extends Surface {
     }
 
     // z-plane 기준 초기 seed 이후 뉴턴법으로 교점 t를 수렴시킵니다.
-    let t = Math.max(TORIC_MIN_T_MM, this.position.z - origin.z);
+    let t = Math.max(TORIC_MIN_T_MM, -origin.z);
 
     for (let i = 0; i < TORIC_MAX_ITERS; i++) {
       const p = origin.clone().addScaledVector(direction, t);
       const geometry = this.geometryAtXY(p.x, p.y);
       if (!geometry) return null;
 
-      const f = p.z - (this.position.z + geometry.sag);
+      const f = p.z - geometry.sag;
       const df = direction.z - geometry.dzdx * direction.x - geometry.dzdy * direction.y;
       if (!Number.isFinite(df) || Math.abs(df) < EPSILON) return null;
 
@@ -171,7 +198,7 @@ export default class ToricSurface extends Surface {
       if (!Number.isFinite(t) || t < TORIC_MIN_T_MM) return null;
 
       if (Math.abs(dt) < 1e-8) {
-        const hitPoint = origin.clone().addScaledVector(direction, t);
+        const hitPoint = this.localPointToWorld(origin.clone().addScaledVector(direction, t));
         this.incidentRays.push(ray.clone());
         return hitPoint;
       }
@@ -188,7 +215,7 @@ export default class ToricSurface extends Surface {
     if (!geometry) return null;
 
     // 스넬 굴절 벡터 계산
-    const incidentDir = ray.getDirection().normalize();
+    const incidentDir = this.worldDirToLocal(ray.getDirection().normalize());
     const normalIntoSecond = geometry.normal.clone();
 
     // 법선을 입사방향과 같은 반공간으로 맞춰 2번째 매질 방향으로 정렬
@@ -206,13 +233,14 @@ export default class ToricSurface extends Surface {
 
     const cos2 = Math.sqrt(Math.max(0, 1 - sin2 * sin2));
     const tangent = incidentDir.clone().sub(normalIntoSecond.clone().multiplyScalar(cos1));
-    const outDirection = tangent.lengthSq() < 1e-12
+    const outDirectionLocal = tangent.lengthSq() < 1e-12
       ? incidentDir.clone()
       : normalIntoSecond
         .clone()
         .multiplyScalar(cos2)
         .add(tangent.normalize().multiplyScalar(sin2))
         .normalize();
+    const outDirection = this.localDirToWorld(outDirectionLocal);
 
     const refractedRay = ray.clone();
     refractedRay.appendPoint(hitPoint);

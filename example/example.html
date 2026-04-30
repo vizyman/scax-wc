@@ -1,6 +1,13 @@
 <!doctype html>
 <html lang="ko">
   <head>
+    <script type="importmap">
+      {
+        "imports": {
+          "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.js"
+        }
+      }
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SCAX WC UI Example</title>
@@ -41,6 +48,7 @@
 
     <!-- dist 빌드 결과 ESM을 직접 로드 -->
     <script type="module">
+      import GUI from 'lil-gui';
       import '../dist/scax-wc.esm.js';
 
       const VD = -18;
@@ -48,9 +56,10 @@
       if (demo) {
         // camera attribute/property example
         // projection: perspective | orthogonal
-        demo.camera = {
-          projection: 'orthogonal',
-        };
+        demo.projection = 'perspective';
+        demo.enableZoom = true;
+        demo.enablePan = true;
+        demo.enableRotate = true;
 
         demo.config = {
           eyeModel: 'navarro',
@@ -69,7 +78,7 @@
               type: 'cross-cylinder',
               s: -0.25,
               c: 0.5,
-              ax: 45,
+              ax: 90,
               position: { x: 0, y: 0, z: VD - 2 },
               tilt: { x: 0, y: 0 },
               diameter: 12,
@@ -94,12 +103,159 @@
           pupil_type: 'neutral',
         };
 
+        const uiState = {
+          projection: 'perspective',
+          enableZoom: true,
+          enablePan: true,
+          enableRotate: true,
+          eyeS: -2,
+          eyeC: -1,
+          eyeAx: 180,
+          lensEnabled: true,
+          lensS: -2,
+          lensC: -1,
+          lensAx: 180,
+          lensZ: VD,
+          crossCylinderEnabled: true,
+          crossCylinderC: 0.5,
+          crossCylinderAx: 90,
+          crossCylinderZ: VD - 2,
+          lightType: 'grid_rg',
+          lightDivision: 5,
+          lightVergence: 0,
+        };
+
+        const applyConfig = () => {
+          const lens = [];
+          if (uiState.lensEnabled) {
+            lens.push({
+              type: 'lens',
+              s: uiState.lensS,
+              c: uiState.lensC,
+              ax: uiState.lensAx,
+              position: { x: 0, y: 0, z: uiState.lensZ },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            });
+          }
+          if (uiState.crossCylinderEnabled) {
+            lens.push({
+              type: 'cross-cylinder',
+              s: -0.25,
+              c: uiState.crossCylinderC,
+              ax: uiState.crossCylinderAx,
+              position: { x: 0, y: 0, z: uiState.crossCylinderZ },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            });
+          }
+
+          demo.projection = uiState.projection;
+          demo.enableZoom = uiState.enableZoom;
+          demo.enablePan = uiState.enablePan;
+          demo.enableRotate = uiState.enableRotate;
+          demo.config = {
+            eyeModel: 'navarro',
+            eye: {
+              s: uiState.eyeS,
+              c: uiState.eyeC,
+              ax: uiState.eyeAx,
+            },
+            lens,
+            light_source: {
+              type: uiState.lightType,
+              width: 0.5,
+              height: 0.5,
+              division: uiState.lightDivision,
+              z: -50,
+              vergence: uiState.lightVergence,
+            },
+            pupil_type: 'neutral',
+          };
+        };
+
+        const resetState = () => {
+          Object.assign(uiState, {
+            projection: 'perspective',
+            enableZoom: true,
+            enablePan: true,
+            enableRotate: true,
+            eyeS: -2,
+            eyeC: -1,
+            eyeAx: 180,
+            lensEnabled: true,
+            lensS: -2,
+            lensC: -1,
+            lensAx: 180,
+            lensZ: VD,
+            crossCylinderEnabled: true,
+            crossCylinderC: 0.5,
+            crossCylinderAx: 90,
+            crossCylinderZ: VD - 2,
+            lightType: 'grid_rg',
+            lightDivision: 5,
+            lightVergence: 0,
+          });
+          applyConfig();
+        };
+
+        const gui = new GUI({ title: 'SCAX Controls' });
+        gui.domElement.style.zIndex = '20';
+
+        const cameraFolder = gui.addFolder('Camera');
+        cameraFolder
+          .add(uiState, 'projection', ['orthogonal', 'perspective'])
+          .name('Projection')
+          .onChange(applyConfig);
+        cameraFolder.add(uiState, 'enableZoom').name('Enable Zoom').onChange(applyConfig);
+        cameraFolder.add(uiState, 'enablePan').name('Enable Pan').onChange(applyConfig);
+        cameraFolder.add(uiState, 'enableRotate').name('Enable Rotate').onChange(applyConfig);
+
+        const eyeFolder = gui.addFolder('Eye');
+        eyeFolder.add(uiState, 'eyeS', -12, 12, 0.25).name('S').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyeC', -6, 6, 0.25).name('C').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyeAx', 0, 180, 1).name('Axis').onChange(applyConfig);
+
+        const lensFolder = gui.addFolder('Lens');
+        lensFolder.add(uiState, 'lensEnabled').name('Enable Lens').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensS', -12, 12, 0.25).name('Lens S').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensC', -6, 6, 0.25).name('Lens C').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensAx', 0, 180, 1).name('Lens Axis').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensZ', -30, -5, 0.5).name('Lens Z').onChange(applyConfig);
+
+        const crossFolder = gui.addFolder('Cross Cylinder');
+        crossFolder.add(uiState, 'crossCylinderEnabled').name('Enable XCyl').onChange(applyConfig);
+        crossFolder.add(uiState, 'crossCylinderC', 0, 2, 0.25).name('XCyl C').onChange(applyConfig);
+        crossFolder
+          .add(uiState, 'crossCylinderAx', 0, 180, 1)
+          .name('XCyl Axis')
+          .onChange(applyConfig);
+        crossFolder
+          .add(uiState, 'crossCylinderZ', -30, -5, 0.5)
+          .name('XCyl Z')
+          .onChange(applyConfig);
+
+        const lightFolder = gui.addFolder('Light Source');
+        lightFolder
+          .add(uiState, 'lightType', ['grid_rg', 'grid'])
+          .name('Type')
+          .onChange(applyConfig);
+        lightFolder.add(uiState, 'lightDivision', 1, 12, 1).name('Division').onChange(applyConfig);
+        lightFolder
+          .add(uiState, 'lightVergence', -2, 2, 0.1)
+          .name('Vergence')
+          .onChange(applyConfig);
+
+        gui.add({ reset: resetState }, 'reset').name('Reset');
+
+        applyConfig();
+
         // quick camera switch demo
         // setTimeout(() => {
-        //   demo.camera = { projection: 'orthogonal' };
+        //   demo.projection = 'orthogonal';
         // }, 1500);
         // setTimeout(() => {
-        //   demo.camera = { projection: 'perspective' };
+        //   demo.projection = 'perspective';
         // }, 3000);
       }
     </script>
