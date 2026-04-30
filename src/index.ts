@@ -812,25 +812,54 @@ export function buildRayObjects(rays: unknown[]): THREE.Object3D[] {
 }
 
 export function buildLightSourceObjects(sourceRays: unknown[]): THREE.Object3D[] {
-  const uniqueOrigins = new Map<string, THREE.Vector3>();
+  const uniqueOrigins = new Map<string, { origin: THREE.Vector3; colors: Set<number> }>();
+  const defaultColor = 0xfbbf24;
   for (const ray of sourceRays) {
     const origin = getRayPoints(ray)[0];
     if (!isFiniteVector3(origin)) continue;
     const key = `${origin.x.toFixed(6)}|${origin.y.toFixed(6)}|${origin.z.toFixed(6)}`;
-    if (!uniqueOrigins.has(key)) uniqueOrigins.set(key, origin.clone());
+    if (!uniqueOrigins.has(key)) {
+      uniqueOrigins.set(key, { origin: origin.clone(), colors: new Set<number>() });
+    }
+    const rayColor = Number((ray as { displayColor?: number }).displayColor);
+    uniqueOrigins.get(key)?.colors.add(Number.isFinite(rayColor) ? rayColor : defaultColor);
   }
 
-  return [...uniqueOrigins.values()].map((origin) => {
+  const markers: THREE.Object3D[] = [];
+  for (const item of uniqueOrigins.values()) {
+    const colors = item.colors.size > 0 ? [...item.colors] : [defaultColor];
     const geometry = new THREE.SphereGeometry(0.2, 12, 10);
-    const material = new THREE.MeshBasicMaterial({
-      color: '#fbbf24',
-      transparent: true,
-      opacity: 0.95,
-    });
-    const marker = new THREE.Mesh(geometry, material);
-    marker.position.copy(origin);
-    return marker;
-  });
+    if (colors.length === 1) {
+      const material = new THREE.MeshBasicMaterial({
+        color: colors[0],
+        transparent: true,
+        opacity: 0.95,
+      });
+      const marker = new THREE.Mesh(geometry, material);
+      marker.position.copy(item.origin);
+      markers.push(marker);
+      continue;
+    }
+
+    const offsetRadius = 0.14;
+    for (let index = 0; index < colors.length; index += 1) {
+      const theta = (2 * Math.PI * index) / colors.length;
+      const material = new THREE.MeshBasicMaterial({
+        color: colors[index],
+        transparent: true,
+        opacity: 0.95,
+      });
+      const marker = new THREE.Mesh(geometry, material);
+      marker.position.set(
+        item.origin.x + offsetRadius * Math.cos(theta),
+        item.origin.y + offsetRadius * Math.sin(theta),
+        item.origin.z,
+      );
+      markers.push(marker);
+    }
+  }
+
+  return markers;
 }
 
 @customElement('scax-wc')
