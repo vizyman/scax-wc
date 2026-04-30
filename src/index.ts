@@ -45,9 +45,18 @@ type CameraPose = {
   target: THREE.Vector3;
 };
 
-type CameraPoseInput = {
+export type CameraStateSnapshot = {
+  projection: CameraProjection;
+  position: Required<CameraPosition>;
+  target: Required<CameraLookAt>;
+  zoom: number;
+};
+
+export type CameraStateInput = {
+  projection?: CameraProjection;
   position?: CameraPosition;
   target?: CameraLookAt;
+  zoom?: number;
 };
 
 function isCameraProjection(value: unknown): value is CameraProjection {
@@ -1048,15 +1057,41 @@ export class ScaxWc extends LitElement {
     return this.lastAffineResult;
   }
 
-  public setCameraPose(pose: CameraPoseInput): void {
-    if (!this.viewCamera) return;
+  public setCameraState(state: CameraStateInput): void {
+    const nextProjection = isCameraProjection(state.projection)
+      ? state.projection
+      : (this.getEffectiveCameraOptions().projection ?? 'perspective');
+    const hasProjectionChanged = this.projection !== nextProjection;
+    this.projection = nextProjection;
+    const applyState = () => {
+      if (this.viewCamera) {
+        const currentPose = this.captureCurrentCameraPose();
+        const fallbackPosition = currentPose?.position ?? this.getCameraPositionFromOptions();
+        const fallbackTarget = currentPose?.target ?? this.getCameraLookAtFromOptions();
+        const nextPosition = this.resolveCameraVector(state.position, fallbackPosition);
+        const nextTarget = this.resolveCameraVector(state.target, fallbackTarget);
+        this.applyCameraPose({ position: nextPosition, target: nextTarget });
+        this.controls?.update();
+      }
+      this.applyCameraZoom(state.zoom);
+    };
+    if (hasProjectionChanged) {
+      requestAnimationFrame(() => applyState());
+      return;
+    }
+    applyState();
+  }
+
+  public getCameraState(): CameraStateSnapshot {
     const currentPose = this.captureCurrentCameraPose();
-    const fallbackPosition = currentPose?.position ?? this.getCameraPositionFromOptions();
-    const fallbackTarget = currentPose?.target ?? this.getCameraLookAtFromOptions();
-    const nextPosition = this.resolveCameraVector(pose.position, fallbackPosition);
-    const nextTarget = this.resolveCameraVector(pose.target, fallbackTarget);
-    this.applyCameraPose({ position: nextPosition, target: nextTarget });
-    this.controls?.update();
+    const position = currentPose?.position ?? this.getCameraPositionFromOptions();
+    const target = currentPose?.target ?? this.getCameraLookAtFromOptions();
+    return {
+      projection: this.getEffectiveCameraOptions().projection ?? 'perspective',
+      position: { x: position.x, y: position.y, z: position.z },
+      target: { x: target.x, y: target.y, z: target.z },
+      zoom: this.captureCurrentCameraZoom(),
+    };
   }
 
   private rebuildSceneMeshes(
@@ -1786,6 +1821,21 @@ export class ScaxWc extends LitElement {
       Number.isFinite(y) ? y : fallback.y,
       Number.isFinite(z) ? z : fallback.z,
     );
+  }
+
+  private captureCurrentCameraZoom(): number {
+    if (!this.viewCamera) return 1;
+    return Number.isFinite(this.viewCamera.zoom) && this.viewCamera.zoom > 0
+      ? this.viewCamera.zoom
+      : 1;
+  }
+
+  private applyCameraZoom(zoom: number | undefined): void {
+    if (!this.viewCamera) return;
+    const nextZoom = Number(zoom);
+    if (!Number.isFinite(nextZoom) || nextZoom <= 0) return;
+    this.viewCamera.zoom = nextZoom;
+    this.viewCamera.updateProjectionMatrix();
   }
 
   private getEffectiveCameraOptions(): CameraRenderOptions {

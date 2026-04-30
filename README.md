@@ -1,6 +1,7 @@
 # scax-wc
 
-Lit + Three.js 기반 안경광학 시뮬레이션(단안 기준, OD) 웹 컴포넌트 입니다.
+Lit + Three.js 기반 안경광학 시뮬레이션(단안 기준, OD) 웹 컴포넌트 입니다.  
+Lit + Three.js based ophthalmic optics simulation web component (monocular, OD).
 
 ## 설치
 
@@ -74,12 +75,18 @@ if (el) {
   el.enablePan = true;
   el.enableRotate = false;
 
-  el.setCameraPose({
-    position: { x: 100, y: 90, z: -70 },
-    target: { x: 0, y: 0, z: 0 },
-  });
+  const cameraState = el.getCameraState();
+  localStorage.setItem('scax-camera-state', JSON.stringify(cameraState));
+
+  const raw = localStorage.getItem('scax-camera-state');
+  if (raw) {
+    el.setCameraState(JSON.parse(raw));
+  }
 }
 ```
+
+`getCameraState` / `setCameraState`는 `perspective`와 `orthogonal` 모두 복원할 수 있도록 `projection`, `position`, `target`, `zoom`을 포함합니다.  
+`getCameraState` / `setCameraState` includes `projection`, `position`, `target`, and `zoom` so both `perspective` and `orthogonal` views can be restored.
 
 ## `<scax-wc>` API
 
@@ -158,11 +165,21 @@ if (el) {
 #### `getAffineResult(): { a, b, c, d, e, f, count, residualAvgPct?, residualMaxPct?, residuals? } | null`
 
 - 광선 추적 결과로 계산된 아핀 왜곡 추정값을 반환합니다.
+- Returns affine distortion estimation from ray-tracing results.
 
-#### `setCameraPose(pose: { position?: { x?: number; y?: number; z?: number }, target?: { x?: number; y?: number; z?: number } }): void`
+#### `getCameraState(): { projection: 'perspective' | 'orthogonal', position: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }, zoom: number }`
 
-- 현재 카메라 위치/타겟(lookAt)을 런타임에서 갱신합니다.
-- 전달하지 않은 축 값은 현재 카메라 값을 유지합니다.
+- 현재 카메라 상태 스냅샷을 반환합니다.
+- Returns a serializable snapshot of the current camera state.
+
+#### `setCameraState(state: { projection?: 'perspective' | 'orthogonal', position?: { x?: number; y?: number; z?: number }, target?: { x?: number; y?: number; z?: number }, zoom?: number }): void`
+
+- 카메라 상태를 런타임에서 복원합니다.
+- `projection`, `position`, `target`, `zoom`을 적용하여 `perspective`/`orthogonal` 뷰를 모두 복원할 수 있습니다.
+- 생략된 값은 현재 상태를 유지합니다.
+- Restores camera state at runtime.
+- Applies `projection`, `position`, `target`, and `zoom` to restore both `perspective` and `orthogonal` views.
+- Omitted fields keep their current values.
 
 ### 이벤트
 

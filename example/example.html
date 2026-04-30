@@ -52,6 +52,7 @@
       import '../dist/scax-wc.esm.js';
 
       const VD = -18;
+      const CAMERA_STATE_STORAGE_KEY = 'scax-camera-state';
       const demo = document.getElementById('demo');
       if (demo) {
         // camera attribute/property example
@@ -174,6 +175,25 @@
           };
         };
 
+        const saveCameraState = () => {
+          const state = demo.getCameraState();
+          localStorage.setItem(CAMERA_STATE_STORAGE_KEY, JSON.stringify(state));
+        };
+
+        const restoreCameraState = () => {
+          const raw = localStorage.getItem(CAMERA_STATE_STORAGE_KEY);
+          if (!raw) return;
+          try {
+            const state = JSON.parse(raw);
+            demo.setCameraState(state);
+            if (state && (state.projection === 'perspective' || state.projection === 'orthogonal')) {
+              uiState.projection = state.projection;
+            }
+          } catch (error) {
+            console.warn('Failed to parse saved camera state:', error);
+          }
+        };
+
         const resetState = () => {
           Object.assign(uiState, {
             projection: 'perspective',
@@ -210,6 +230,8 @@
         cameraFolder.add(uiState, 'enableZoom').name('Enable Zoom').onChange(applyConfig);
         cameraFolder.add(uiState, 'enablePan').name('Enable Pan').onChange(applyConfig);
         cameraFolder.add(uiState, 'enableRotate').name('Enable Rotate').onChange(applyConfig);
+        cameraFolder.add({ saveCameraState }, 'saveCameraState').name('Save Camera');
+        cameraFolder.add({ restoreCameraState }, 'restoreCameraState').name('Restore Camera');
 
         const eyeFolder = gui.addFolder('Eye');
         eyeFolder.add(uiState, 'eyeS', -12, 12, 0.25).name('S').onChange(applyConfig);
@@ -249,6 +271,7 @@
         gui.add({ reset: resetState }, 'reset').name('Reset');
 
         applyConfig();
+        restoreCameraState();
 
         // quick camera switch demo
         // setTimeout(() => {
