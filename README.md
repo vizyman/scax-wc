@@ -1,11 +1,6 @@
 # scax-wc
 
-Lit + Three.js 기반 웹 컴포넌트 라이브러리입니다.
-
-- 근축광선일수록 정확도가 높아 집니다.
-- 이 프로젝트는 단안 시각화를 지원합니다.
-- 프리즘 도수 시각화도 지원할 예정정입니다.
-- 모형안 모델의 한계로 가입도(Add)는 지원 계획이 없습니다.
+Lit + Three.js 기반 안경광학 시뮬레이션(단안 기준, OD) 웹 컴포넌트 입니다.
 
 ## 설치
 
@@ -60,6 +55,32 @@ if (el) {
 }
 ```
 
+### 카메라/뷰 제어
+
+```html
+<scax-wc projection="orthogonal" enable-zoom enable-pan enable-rotate></scax-wc>
+```
+
+- `projection`: `perspective` | `orthogonal`
+- `enable-zoom`: 줌 허용 여부
+- `enable-pan`: 팬 허용 여부
+- `enable-rotate`: 회전 허용 여부
+
+```ts
+const el = document.querySelector('scax-wc');
+if (el) {
+  el.projection = 'perspective';
+  el.enableZoom = true;
+  el.enablePan = true;
+  el.enableRotate = false;
+
+  el.setCameraPose({
+    position: { x: 100, y: 90, z: -70 },
+    target: { x: 0, y: 0, z: 0 },
+  });
+}
+```
+
 ## `<scax-wc>` API
 
 ### 프로퍼티
@@ -100,6 +121,30 @@ if (el) {
 - `light_source`: 광원 설정 (`type`, `width`, `height`, `division`, `z`, `vergence`)
 - `pupil_type`: 동공 타입
 
+#### `projection`
+
+- 타입: `'perspective' | 'orthogonal'`
+- 속성: `projection`
+- 기본값: `perspective`
+
+#### `enableZoom`
+
+- 타입: `boolean`
+- 속성: `enable-zoom`
+- 기본값: `true`
+
+#### `enablePan`
+
+- 타입: `boolean`
+- 속성: `enable-pan`
+- 기본값: `true`
+
+#### `enableRotate`
+
+- 타입: `boolean`
+- 속성: `enable-rotate`
+- 기본값: `true`
+
 ### 메서드
 
 #### `getSimulateResult<T = unknown>(): T | null`
@@ -113,6 +158,11 @@ if (el) {
 #### `getAffineResult(): { a, b, c, d, e, f, count, residualAvgPct?, residualMaxPct?, residuals? } | null`
 
 - 광선 추적 결과로 계산된 아핀 왜곡 추정값을 반환합니다.
+
+#### `setCameraPose(pose: { position?: { x?: number; y?: number; z?: number }, target?: { x?: number; y?: number; z?: number } }): void`
+
+- 현재 카메라 위치/타겟(lookAt)을 런타임에서 갱신합니다.
+- 전달하지 않은 축 값은 현재 카메라 값을 유지합니다.
 
 ### 이벤트
 

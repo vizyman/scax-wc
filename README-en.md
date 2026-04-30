@@ -1,6 +1,6 @@
 # scax-wc
 
-Lit + Three.js based web component library.
+Lit + Three.js based ophthalmic optics simulation web component (monocular, OD).
 
 - Accuracy increases as rays become more paraxial.
 - This project supports monocular visualization.
@@ -60,6 +60,32 @@ if (el) {
 }
 ```
 
+### Camera/View Controls
+
+```html
+<scax-wc projection="orthogonal" enable-zoom enable-pan enable-rotate></scax-wc>
+```
+
+- `projection`: `perspective` | `orthogonal`
+- `enable-zoom`: enables zoom interaction
+- `enable-pan`: enables pan interaction
+- `enable-rotate`: enables orbit rotation interaction
+
+```ts
+const el = document.querySelector('scax-wc');
+if (el) {
+  el.projection = 'perspective';
+  el.enableZoom = true;
+  el.enablePan = true;
+  el.enableRotate = false;
+
+  el.setCameraPose({
+    position: { x: 100, y: 90, z: -70 },
+    target: { x: 0, y: 0, z: 0 },
+  });
+}
+```
+
 ## `<scax-wc>` API
 
 ### Properties
@@ -91,6 +117,30 @@ Key fields:
 - `light_source`: Light source settings (`type`, `width`, `height`, `division`, `z`, `vergence`)
 - `pupil_type`: Pupil type
 
+#### `projection`
+
+- Type: `'perspective' | 'orthogonal'`
+- Attribute: `projection`
+- Default: `perspective`
+
+#### `enableZoom`
+
+- Type: `boolean`
+- Attribute: `enable-zoom`
+- Default: `true`
+
+#### `enablePan`
+
+- Type: `boolean`
+- Attribute: `enable-pan`
+- Default: `true`
+
+#### `enableRotate`
+
+- Type: `boolean`
+- Attribute: `enable-rotate`
+- Default: `true`
+
 ### Methods
 
 #### `getSimulateResult<T = unknown>(): T | null`
@@ -104,6 +154,11 @@ Key fields:
 #### `getAffineResult(): { a, b, c, d, e, f, count, residualAvgPct?, residualMaxPct?, residuals? } | null`
 
 - Returns affine distortion estimation values calculated from ray tracing results.
+
+#### `setCameraPose(pose: { position?: { x?: number; y?: number; z?: number }, target?: { x?: number; y?: number; z?: number } }): void`
+
+- Updates camera position and look-at target at runtime.
+- Any omitted axis values are kept from the current camera pose.
 
 ### Events
 
