@@ -108,12 +108,30 @@
         };
         demo.color = {
           scene: { background: '#0f172a' },
-          surface: { cornea: '#f8fafc', retinaOrSphericalImage: '#fb923c' },
-          ray: { default: '#fbbf24' },
-          lightSource: { default: '#fbbf24' },
-          ui: { hostBorder: '#d1d5db', hostBackground: '#111827' },
+          surface: {
+            apertureStop: '#000000',
+            cornea: '#f8fafc',
+            compound: '#60a5fa',
+            toric: '#c084fc',
+            sphericalImage: '#fb923c',
+            aspherical: '#22d3ee',
+          },
+          meridian: {
+            combined: { strong: '#f59e0b', weak: '#06b6d4' },
+            eye: { strong: '#38bdf8', weak: '#f472b6' },
+            lens: {
+              strong: '#3b82f6',
+              weak: '#ec4899',
+            },
+          },
+          cross_cylinder: {
+            plus: '#ef4444',
+            minus: '#ffffff',
+            plusMarker: '#ef4444',
+            minusMarker: '#ffffff',
+            bisector: '#000000',
+          },
         };
-
         const uiState = {
           projection: 'perspective',
           enableZoom: true,
@@ -136,14 +154,25 @@
           lightVergence: 0,
           renderPupil: false,
           sceneBackground: '#0f172a',
+          apertureStopColor: '#000000',
           corneaColor: '#f8fafc',
-          retinaColor: '#fb923c',
-          rayColor: '#fbbf24',
-          sourceColor: '#fbbf24',
-          hostBorderColor: '#d1d5db',
-          hostBackgroundColor: '#111827',
+          compoundSurfaceColor: '#60a5fa',
+          toricColor: '#c084fc',
+          sphericalImageColor: '#fb923c',
+          asphericalColor: '#22d3ee',
+          combinedStrongColor: '#f59e0b',
+          combinedWeakColor: '#06b6d4',
+          eyeStrongColor: '#38bdf8',
+          eyeWeakColor: '#f472b6',
+          lensStrongColor: '#3b82f6',
+          lensWeakColor: '#ec4899',
+          crossPlusColor: '#ef4444',
+          crossMinusColor: '#ffffff',
+          crossPlusMarkerColor: '#ef4444',
+          crossMinusMarkerColor: '#ffffff',
+          crossBisectorColor: '#000000',
         };
-
+        
         const applyConfig = () => {
           const lens = [];
           if (uiState.lensEnabled) {
@@ -197,14 +226,33 @@
           demo.color = {
             scene: { background: uiState.sceneBackground },
             surface: {
+              apertureStop: uiState.apertureStopColor,
               cornea: uiState.corneaColor,
-              retinaOrSphericalImage: uiState.retinaColor,
+              compound: uiState.compoundSurfaceColor,
+              toric: uiState.toricColor,
+              sphericalImage: uiState.sphericalImageColor,
+              aspherical: uiState.asphericalColor,
             },
-            ray: { default: uiState.rayColor },
-            lightSource: { default: uiState.sourceColor },
-            ui: {
-              hostBorder: uiState.hostBorderColor,
-              hostBackground: uiState.hostBackgroundColor,
+            meridian: {
+              combined: {
+                strong: uiState.combinedStrongColor,
+                weak: uiState.combinedWeakColor,
+              },
+              eye: {
+                strong: uiState.eyeStrongColor,
+                weak: uiState.eyeWeakColor,
+              },
+              lens: {
+                strong: uiState.lensStrongColor,
+                weak: uiState.lensWeakColor,
+              },
+            },
+            cross_cylinder: {
+              plus: uiState.crossPlusColor,
+              minus: uiState.crossMinusColor,
+              plusMarker: uiState.crossPlusMarkerColor,
+              minusMarker: uiState.crossMinusMarkerColor,
+              bisector: uiState.crossBisectorColor,
             },
           };
         };
@@ -254,12 +302,23 @@
             lightVergence: 0,
             renderPupil: false,
             sceneBackground: '#0f172a',
+            apertureStopColor: '#000000',
             corneaColor: '#f8fafc',
-            retinaColor: '#fb923c',
-            rayColor: '#fbbf24',
-            sourceColor: '#fbbf24',
-            hostBorderColor: '#d1d5db',
-            hostBackgroundColor: '#111827',
+            compoundSurfaceColor: '#60a5fa',
+            toricColor: '#c084fc',
+            sphericalImageColor: '#fb923c',
+            asphericalColor: '#22d3ee',
+            combinedStrongColor: '#f59e0b',
+            combinedWeakColor: '#06b6d4',
+            eyeStrongColor: '#38bdf8',
+            eyeWeakColor: '#f472b6',
+            lensStrongColor: '#3b82f6',
+            lensWeakColor: '#ec4899',
+            crossPlusColor: '#ef4444',
+            crossMinusColor: '#ffffff',
+            crossPlusMarkerColor: '#ef4444',
+            crossMinusMarkerColor: '#ffffff',
+            crossBisectorColor: '#000000',
           });
           applyConfig();
         };
@@ -316,15 +375,32 @@
 
         const colorFolder = gui.addFolder('Color');
         colorFolder.addColor(uiState, 'sceneBackground').name('Scene BG').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'apertureStopColor').name('Aperture Stop').onChange(applyConfig);
         colorFolder.addColor(uiState, 'corneaColor').name('Cornea').onChange(applyConfig);
-        colorFolder.addColor(uiState, 'retinaColor').name('Retina').onChange(applyConfig);
-        colorFolder.addColor(uiState, 'rayColor').name('Ray').onChange(applyConfig);
-        colorFolder.addColor(uiState, 'sourceColor').name('Source').onChange(applyConfig);
-        colorFolder.addColor(uiState, 'hostBorderColor').name('Host Border').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'compoundSurfaceColor').name('Compound').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'toricColor').name('Toric').onChange(applyConfig);
         colorFolder
-          .addColor(uiState, 'hostBackgroundColor')
-          .name('Host Background')
+          .addColor(uiState, 'sphericalImageColor')
+          .name('Spherical Image')
           .onChange(applyConfig);
+        colorFolder.addColor(uiState, 'asphericalColor').name('Aspherical').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'combinedStrongColor').name('Combined Strong').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'combinedWeakColor').name('Combined Weak').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'eyeStrongColor').name('Eye Strong').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'eyeWeakColor').name('Eye Weak').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'lensStrongColor').name('Lens Strong').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'lensWeakColor').name('Lens Weak').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'crossPlusColor').name('Cross Plus').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'crossMinusColor').name('Cross Minus').onChange(applyConfig);
+        colorFolder
+          .addColor(uiState, 'crossPlusMarkerColor')
+          .name('Cross Plus Marker')
+          .onChange(applyConfig);
+        colorFolder
+          .addColor(uiState, 'crossMinusMarkerColor')
+          .name('Cross Minus Marker')
+          .onChange(applyConfig);
+        colorFolder.addColor(uiState, 'crossBisectorColor').name('Cross Bisector').onChange(applyConfig);
 
         gui.add({ reset: resetState }, 'reset').name('Reset');
 

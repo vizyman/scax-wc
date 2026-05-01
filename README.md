@@ -37,11 +37,9 @@ import 'scax-wc';
   }'
   color='{
     "scene":{"background":"#020617"},
-    "surface":{"cornea":"#e2e8f0","retinaOrSphericalImage":"#f97316"},
-    "ray":{"default":"#facc15"},
-    "lightSource":{"default":"#fde047"},
-    "compound":{"strongNear":"#f59e0b","weakFar":"#06b6d4"},
-    "ui":{"hostBorder":"#334155","hostBackground":"#0f172a"}
+    "surface":{"apertureStop":"#000000","cornea":"#e2e8f0","compound":"#60a5fa","toric":"#a855f7","sphericalImage":"#f97316","aspherical":"#06b6d4"},
+    "meridian":{"combined":{"strong":"#f59e0b","weak":"#06b6d4"},"eye":{"strong":"#38bdf8","weak":"#f472b6"},"lens":{"strong":"#3b82f6","weak":"#ec4899"}},
+    "cross_cylinder":{"plus":"#ef4444","minus":"#ffffff","plusMarker":"#ef4444","minusMarker":"#ffffff","bisector":"#000000"}
   }'
 ></scax-wc>
 ```
@@ -63,10 +61,26 @@ if (el) {
   };
   el.color = {
     scene: { background: '#020617' },
-    surface: { cornea: '#e2e8f0', retinaOrSphericalImage: '#f97316' },
-    ray: { default: '#facc15' },
-    lightSource: { default: '#fde047' },
-    ui: { hostBorder: '#334155', hostBackground: '#0f172a' },
+    surface: {
+      apertureStop: '#000000',
+      cornea: '#e2e8f0',
+      compound: '#60a5fa',
+      toric: '#a855f7',
+      sphericalImage: '#f97316',
+      aspherical: '#06b6d4',
+    },
+    meridian: {
+      combined: { strong: '#f59e0b', weak: '#06b6d4' },
+      eye: { strong: '#38bdf8', weak: '#f472b6' },
+      lens: { strong: '#3b82f6', weak: '#ec4899' },
+    },
+    cross_cylinder: {
+      plus: '#ef4444',
+      minus: '#ffffff',
+      plusMarker: '#ef4444',
+      minusMarker: '#ffffff',
+      bisector: '#000000',
+    },
   };
 
   const simulateResult = el.getSimulateResult();
@@ -164,16 +178,12 @@ if (el) {
 
 주요 필드:
 
-- `surface`: 표면 색상 (`apertureStop`, `cornea`, `retinaOrSphericalImage`, `compound`, `toric`, `aspherical`, `default`)
-- `ray.default`: 광선 기본 색상 (`ray.displayColor`가 없을 때 사용)
-- `lightSource.default`: 광원 마커 기본 색상
-- `compound`: Sturm/난시 라인 색상 (`strongNear`, `weakFar`)
-- `eye`: 유도 난시 기준 메리디안 색상 (`basePrimary`, `baseSecondary`)
-- `lens`: 렌즈 메리디안 색상 (`primary`, `secondary`, `cross.plusMarker`, `cross.minusMarker`, `cross.bisector` 등)
-- `sturm.centerFallback`: Sturm 중심점 fallback 색상
+- `surface`: 표면 색상 (`apertureStop`, `cornea`, `compound`, `toric`, `sphericalImage`, `aspherical`)
+- `meridian.combined`: 결합 난시 메리디안 색상 (`strong`, `weak`)
+- `meridian.eye`: 안구 메리디안 색상 (`strong`, `weak`)
+- `meridian.lens`: 안경 렌즈 메리디안 색상 (`strong`, `weak`)
+- `cross_cylinder`: 크로스 실린더 색상 (`plus`, `minus`, `plusMarker`, `minusMarker`, `bisector`)
 - `scene.background`: Three.js scene 배경색
-- `light.directional` / `light.ambient`: 기본 광원 색상
-- `ui.hostBorder` / `ui.hostBackground`: 컴포넌트 외곽선/배경 색상
 
 #### `projection`
 
