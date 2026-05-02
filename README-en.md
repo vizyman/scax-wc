@@ -7,6 +7,10 @@ Lit + Three.js based ophthalmic optics simulation web component (monocular, OD).
 - Prism diopter visualization is planned for future implementation.
 - Due to limitations of the model eye, there are no plans to support Add visualization.
 
+## What is SCAX?
+
+In ophthalmic optics, **SCAX** is the standard notation for prescription data: **S** is spherical lens power, **C** is cylindrical lens power, and **AX** is the axis of the cylinder.
+
 ## Install
 
 ```bash
