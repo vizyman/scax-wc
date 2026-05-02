@@ -2,8 +2,12 @@ import { LitElement, css, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { AstigmatismSummaryItem, SCAXEngineProps, SimulateResult } from './scax-engine';
-import SCAXEngine from './scax-engine/scax-engine';
+import {
+  SCAXEngine,
+  type AstigmatismSummaryItem,
+  type SCAXEngineProps,
+  type SimulateResult,
+} from 'scax-engine';
 
 const TAG = '[scax-wc]';
 

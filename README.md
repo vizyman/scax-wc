@@ -5,6 +5,10 @@ Lit + Three.js based ophthalmic optics simulation web component (monocular, OD).
 
 ![scax-wc preview](./main.png)
 
+## SCAX란?
+
+scax는 안경광학에서 기본적으로 쓰이는 데이터입니다. **S**는 구면렌즈 도수, **C**는 원주렌즈 도수, **AX**는 원주렌즈의 축입니다.
+
 ## 설치
 
 ```bash
