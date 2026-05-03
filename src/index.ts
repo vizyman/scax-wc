@@ -396,10 +396,26 @@ function angleDistance180(aDeg: number, bDeg: number): number {
   return Math.min(diff, 180 - diff);
 }
 
-function taboToDeg(taboDeg: number): number {
-  const tabo = Number(taboDeg);
-  if (!Number.isFinite(tabo)) return 0;
-  return (((180 - tabo) % 180) + 180) % 180;
+/** Principal astigmatic meridians are always 90° apart; snap the partner angle if data drifts. */
+const MERIDIAN_ORTHOGONAL_TOLERANCE_DEG = 2;
+
+function enforcePerpendicularMeridianPair(weakAxisDeg: number, strongAxisDeg: number): number {
+  const weak = normalizeAxis180(weakAxisDeg);
+  const strong = normalizeAxis180(strongAxisDeg);
+  const separation = angleDistance180(weak, strong);
+  if (Math.abs(separation - 90) <= MERIDIAN_ORTHOGONAL_TOLERANCE_DEG) return strong;
+  return normalizeAxis180(weak + 90);
+}
+
+/**
+ * Meridian direction (degrees) for overlays — same convention as scax-engine
+ * `info.astigmatism` / `tabo` and Sturm `angleMajorDeg` (scene xy, 0–180°).
+ * Do not apply legacy TABO chart mirroring here; that diverged from the engine test UI.
+ */
+function engineMeridianDeg(angleDeg: number): number {
+  const v = Number(angleDeg);
+  if (!Number.isFinite(v)) return 0;
+  return normalizeAxis180(v);
 }
 
 function createOrientedLineObject(
@@ -1342,11 +1358,15 @@ export class ScaxWc extends LitElement {
       (a, b) => Number(a.d) - Number(b.d),
     );
     const combinedWeakAxis = Number.isFinite(Number(combinedWeakMeridian?.tabo))
-      ? normalizeAxis180(taboToDeg(Number(combinedWeakMeridian?.tabo)))
+      ? engineMeridianDeg(Number(combinedWeakMeridian?.tabo))
       : activeCorneaAxisFromSturm;
-    const combinedStrongAxis = Number.isFinite(Number(combinedStrongMeridian?.tabo))
-      ? normalizeAxis180(taboToDeg(Number(combinedStrongMeridian?.tabo)))
+    const combinedStrongFromTabo = Number.isFinite(Number(combinedStrongMeridian?.tabo))
+      ? engineMeridianDeg(Number(combinedStrongMeridian?.tabo))
       : normalizeAxis180(combinedWeakAxis + 90);
+    const combinedStrongAxis =
+      combinedMeridians.length >= 2
+        ? enforcePerpendicularMeridianPair(combinedWeakAxis, combinedStrongFromTabo)
+        : combinedStrongFromTabo;
 
     const lensRadiusBySurface = new Map<SurfaceLike, number>();
     const configLenses = Array.isArray(this.config?.lens) ? this.config.lens : [];
@@ -1399,8 +1419,8 @@ export class ScaxWc extends LitElement {
       );
       for (const part of parts) {
         const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
-          ? taboToDeg(Number(simWeakMeridian?.tabo))
-          : Number(part.ax ?? surface.ax ?? 0);
+          ? engineMeridianDeg(Number(simWeakMeridian?.tabo))
+          : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
         const weakMeridianPower = Number.isFinite(Number(simWeakMeridian?.d))
           ? Number(simWeakMeridian?.d)
@@ -1786,12 +1806,16 @@ export class ScaxWc extends LitElement {
     const [combinedWeak, combinedStrong] = [...combinedMeridians].sort(
       (a, b) => Number(a.d) - Number(b.d),
     );
-    const strongAxisDeg = Number.isFinite(Number(combinedStrong?.tabo))
-      ? normalizeAxis180(taboToDeg(Number(combinedStrong?.tabo)))
-      : 0;
     const weakAxisDeg = Number.isFinite(Number(combinedWeak?.tabo))
-      ? normalizeAxis180(taboToDeg(Number(combinedWeak?.tabo)))
+      ? engineMeridianDeg(Number(combinedWeak?.tabo))
       : 90;
+    const strongAxisFromTabo = Number.isFinite(Number(combinedStrong?.tabo))
+      ? engineMeridianDeg(Number(combinedStrong?.tabo))
+      : normalizeAxis180(weakAxisDeg + 90);
+    const strongAxisDeg =
+      combinedMeridians.length >= 2
+        ? enforcePerpendicularMeridianPair(weakAxisDeg, strongAxisFromTabo)
+        : strongAxisFromTabo;
     const strongFocalAxis = normalizeAxis180(strongAxisDeg + 90);
     const weakFocalAxis = normalizeAxis180(weakAxisDeg + 90);
 
