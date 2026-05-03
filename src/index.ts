@@ -2,6 +2,7 @@ import { LitElement, css, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import {
   SCAXEngine,
   type AstigmatismSummaryItem,
@@ -903,6 +904,95 @@ export function buildSurfaceMeshes(
   return meshes;
 }
 
+function passesSurfaceVisibilityForSimulation(
+  surface: SurfaceLike,
+  renderPupil: boolean,
+): boolean {
+  const lowerType = String(surface?.type ?? '').toLowerCase();
+  const lowerName = String(surface?.name ?? '').toLowerCase();
+  const isPupilSurface = lowerName === 'pupil_stop' || lowerType === 'aperture_stop';
+  if (isPupilSurface) return renderPupil;
+  return true;
+}
+
+function surfacesForCorneaLabelGroup(eye: SurfaceLike[]): SurfaceLike[] {
+  return eye.filter((surface) => {
+    const t = String(surface.type ?? '').toLowerCase();
+    const n = String(surface.name ?? '').toLowerCase();
+    return t === 'paraxial' || n === 'cornea_anterior' || n === 'cornea_posterior';
+  });
+}
+
+function surfacesForCrystallineLensLabelGroup(eye: SurfaceLike[]): SurfaceLike[] {
+  return eye.filter((surface) => {
+    const n = String(surface.name ?? '').toLowerCase();
+    return n === 'lens_anterior' || n === 'lens_posterior';
+  });
+}
+
+/** 망막(상) — 이름에 retina 또는 spherical-image 타입 */
+function surfacesForRetinaLabelGroup(eye: SurfaceLike[]): SurfaceLike[] {
+  return eye.filter((surface) => {
+    const t = String(surface.type ?? '').toLowerCase();
+    const n = String(surface.name ?? '').toLowerCase();
+    return n.includes('retina') || t === 'spherical-image';
+  });
+}
+
+/** x·z는 구성 표면 위치의 평균(mm), y는 반경 기준 메쉬 상단 추정치 중 최대 */
+function anatomicalLabelAnchorMm(surfaces: SurfaceLike[]): THREE.Vector3 | null {
+  if (surfaces.length === 0) return null;
+  let sumX = 0;
+  let sumZ = 0;
+  let yTop = -Infinity;
+  for (const surface of surfaces) {
+    const p = readSurfacePosition(surface);
+    const r = estimateSurfaceRadius(surface);
+    sumX += p.x;
+    sumZ += p.z;
+    yTop = Math.max(yTop, p.y + r);
+  }
+  const n = surfaces.length;
+  return new THREE.Vector3(sumX / n, yTop, sumZ / n);
+}
+
+/**
+ * 눈 모델 고정 라벨 3종(삽입 렌즈 제외). 리더 선 없음.
+ * - cornea: 눈 굴절력(paraxial) + 각막 전·후면 z 평균, y는 해당 군의 메쉬 상단
+ * - crystalline lens: 수정체 전·후면 z 평균, y 동일 규칙
+ * - retina: 망막/상 표면 z 평균(표기 오기 가능성 있음), y 동일 규칙
+ */
+export function buildAnatomicalEyeLabels(
+  eyeSurfaces: SurfaceLike[],
+  renderPupil: boolean,
+): CSS2DObject[] {
+  const eye = eyeSurfaces.filter((surface) =>
+    passesSurfaceVisibilityForSimulation(surface, renderPupil),
+  );
+  const specs: readonly {
+    text: string;
+    pick: (surfaces: SurfaceLike[]) => SurfaceLike[];
+  }[] = [
+    { text: 'cornea', pick: surfacesForCorneaLabelGroup },
+    { text: 'crystalline lens', pick: surfacesForCrystallineLensLabelGroup },
+    { text: 'retina', pick: surfacesForRetinaLabelGroup },
+  ];
+  const labels: CSS2DObject[] = [];
+  for (const { text, pick } of specs) {
+    const group = pick(eye);
+    const pos = anatomicalLabelAnchorMm(group);
+    if (!pos) continue;
+    const div = document.createElement('div');
+    div.className = 'scax-wc-surface-label';
+    div.textContent = text;
+    const label = new CSS2DObject(div);
+    label.center.set(0.5, 1);
+    label.position.copy(pos);
+    labels.push(label);
+  }
+  return labels;
+}
+
 export function buildRayObjects(rays: unknown[]): THREE.Object3D[] {
   const colorTheme = defaultScaxColorTheme();
   return buildRayObjectsWithTheme(rays, colorTheme);
@@ -1003,6 +1093,19 @@ export class ScaxWc extends LitElement {
       width: 100%;
       height: 100%;
     }
+
+    .scax-wc-surface-label {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      color: #e5e7eb;
+      text-shadow:
+        0 0 4px #000,
+        0 1px 2px #000;
+      pointer-events: none;
+      user-select: none;
+      white-space: nowrap;
+    }
   `;
 
   /**
@@ -1051,15 +1154,20 @@ export class ScaxWc extends LitElement {
   @property({ attribute: 'enable-rotate', type: Boolean })
   enableRotate?: boolean;
 
+  @property({ attribute: 'show-label', type: Boolean })
+  showLabel = false;
+
   private scene?: THREE.Scene;
   private viewCamera?: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private renderer?: THREE.WebGLRenderer;
+  private labelRenderer?: CSS2DRenderer;
   private controls?: OrbitControls;
   private ambientLight?: THREE.AmbientLight;
   private directionalLight?: THREE.DirectionalLight;
   private animationId?: number;
   private engine?: SCAXEngine;
   private surfaceMeshes: THREE.Object3D[] = [];
+  private surfaceLabels: CSS2DObject[] = [];
   private rayObjects: THREE.Object3D[] = [];
   private lightSourceObjects: THREE.Object3D[] = [];
   private sturmObjects: THREE.Object3D[] = [];
@@ -1089,6 +1197,9 @@ export class ScaxWc extends LitElement {
     if (changed.has('enableZoom') || changed.has('enablePan') || changed.has('enableRotate')) {
       this.applyOrbitControlState();
     }
+    if (changed.has('showLabel')) {
+      this.applySurfaceLabelVisibility();
+    }
     const colorChanged = changed.has('color');
     if (colorChanged) {
       this.applyColorTheme();
@@ -1112,6 +1223,7 @@ export class ScaxWc extends LitElement {
     if (!this.scene || !this.viewCamera || !this.renderer) return;
     this.controls?.update();
     this.renderer.render(this.scene, this.viewCamera);
+    this.labelRenderer?.render(this.scene, this.viewCamera);
     this.animationId = requestAnimationFrame(this.renderLoop);
   };
 
@@ -1131,6 +1243,7 @@ export class ScaxWc extends LitElement {
     if (!root) return;
     this.scene = this.createScene();
     this.renderer = this.createRenderer(root);
+    this.labelRenderer = this.createLabelRenderer(root);
     this.initializeCameraAndControls(root);
     this.addDefaultLights();
   }
@@ -1152,6 +1265,20 @@ export class ScaxWc extends LitElement {
     renderer.setSize(root.clientWidth, root.clientHeight);
     root.append(renderer.domElement);
     return renderer;
+  }
+
+  private createLabelRenderer(root: HTMLDivElement): CSS2DRenderer {
+    const labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(root.clientWidth, root.clientHeight);
+    const el = labelRenderer.domElement;
+    el.style.position = 'absolute';
+    el.style.top = '0';
+    el.style.left = '0';
+    el.style.width = '100%';
+    el.style.height = '100%';
+    el.style.pointerEvents = 'none';
+    root.append(el);
+    return labelRenderer;
   }
 
   private addDefaultLights(): void {
@@ -1226,6 +1353,8 @@ export class ScaxWc extends LitElement {
     this.clearAllRenderableGroups();
     this.controls?.dispose();
     this.controls = undefined;
+    this.labelRenderer?.domElement.remove();
+    this.labelRenderer = undefined;
     this.renderer?.dispose();
     this.renderer = undefined;
     this.viewCamera = undefined;
@@ -1236,6 +1365,7 @@ export class ScaxWc extends LitElement {
 
   private clearAllRenderableGroups(): void {
     this.clearSceneObjects(this.surfaceMeshes);
+    this.clearSceneObjects(this.surfaceLabels);
     this.clearSceneObjects(this.rayObjects);
     this.clearSceneObjects(this.lightSourceObjects);
     this.clearSceneObjects(this.sturmObjects);
@@ -1306,15 +1436,9 @@ export class ScaxWc extends LitElement {
     const state = this.engine as unknown as EngineStateLike;
     const lensSurfaces = Array.isArray(state.lens) ? state.lens : [];
     const eyeSurfaces = Array.isArray(state.surfaces) ? state.surfaces : [];
+    const renderPupil = Boolean(this.config?.render?.pupil);
     const ordered = [...lensSurfaces, ...eyeSurfaces]
-      .filter((surface) => {
-        const renderPupil = Boolean(this.config?.render?.pupil);
-        const lowerType = String(surface?.type ?? '').toLowerCase();
-        const lowerName = String(surface?.name ?? '').toLowerCase();
-        const isPupilSurface = lowerName === 'pupil_stop' || lowerType === 'aperture_stop';
-        if (isPupilSurface) return renderPupil;
-        return true;
-      })
+      .filter((surface) => passesSurfaceVisibilityForSimulation(surface, renderPupil))
       .sort((a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z);
     const corneaSurface = eyeSurfaces.find(
       (surface) => String(surface?.name ?? '').toLowerCase() === 'eye_st',
@@ -1364,6 +1488,13 @@ export class ScaxWc extends LitElement {
     for (const mesh of this.surfaceMeshes) {
       this.scene.add(mesh);
     }
+
+    this.surfaceLabels = buildAnatomicalEyeLabels(eyeSurfaces, renderPupil);
+    this.applySurfaceLabelVisibility();
+    for (const label of this.surfaceLabels) {
+      this.scene.add(label);
+    }
+
     this.rayObjects = buildRayObjectsWithTheme(tracedRays, colorTheme);
     for (const object of this.rayObjects) {
       this.scene.add(object);
@@ -1577,6 +1708,7 @@ export class ScaxWc extends LitElement {
   private getCameraFitObjects(): THREE.Object3D[] {
     return [
       ...this.surfaceMeshes,
+      ...this.surfaceLabels,
       ...this.rayObjects,
       ...this.lightSourceObjects,
       ...this.sturmObjects,
@@ -1883,6 +2015,15 @@ export class ScaxWc extends LitElement {
       this.sturmObjects = [];
     } else if (objects === this.meridianObjects) {
       this.meridianObjects = [];
+    } else if (objects === this.surfaceLabels) {
+      this.surfaceLabels = [];
+    }
+  }
+
+  private applySurfaceLabelVisibility(): void {
+    const visible = Boolean(this.showLabel);
+    for (const label of this.surfaceLabels) {
+      label.visible = visible;
     }
   }
 
@@ -1922,6 +2063,7 @@ export class ScaxWc extends LitElement {
       this.viewCamera.updateProjectionMatrix();
     }
     this.renderer.setSize(root.clientWidth, root.clientHeight);
+    this.labelRenderer?.setSize(root.clientWidth, root.clientHeight);
   };
 
   private initializeCameraAndControls(

@@ -61,6 +61,7 @@
         demo.enableZoom = true;
         demo.enablePan = true;
         demo.enableRotate = true;
+        demo.showLabel = false;
 
         demo.config = {
           eyeModel: 'navarro',
@@ -137,6 +138,7 @@
           enableZoom: true,
           enablePan: true,
           enableRotate: true,
+          showLabel: false,
           eyeS: -2,
           eyeC: -1,
           eyeAx: 180,
@@ -202,6 +204,7 @@
           demo.enableZoom = uiState.enableZoom;
           demo.enablePan = uiState.enablePan;
           demo.enableRotate = uiState.enableRotate;
+          demo.showLabel = uiState.showLabel;
           demo.config = {
             eyeModel: 'navarro',
             eye: {
@@ -285,6 +288,7 @@
             enableZoom: true,
             enablePan: true,
             enableRotate: true,
+            showLabel: false,
             eyeS: -2,
             eyeC: -1,
             eyeAx: 180,
@@ -334,6 +338,7 @@
         cameraFolder.add(uiState, 'enableZoom').name('Enable Zoom').onChange(applyConfig);
         cameraFolder.add(uiState, 'enablePan').name('Enable Pan').onChange(applyConfig);
         cameraFolder.add(uiState, 'enableRotate').name('Enable Rotate').onChange(applyConfig);
+        cameraFolder.add(uiState, 'showLabel').name('Show Labels').onChange(applyConfig);
         cameraFolder.add({ saveCameraState }, 'saveCameraState').name('Save Camera');
         cameraFolder.add({ restoreCameraState }, 'restoreCameraState').name('Restore Camera');
 
