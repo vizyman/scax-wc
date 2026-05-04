@@ -415,6 +415,17 @@ function angleDistance180(aDeg: number, bDeg: number): number {
   return Math.min(diff, 180 - diff);
 }
 
+function sortMeridiansByPowerStrength<T extends { d?: number }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const aPower = Number(a?.d);
+    const bPower = Number(b?.d);
+    const aStrength = Number.isFinite(aPower) ? Math.abs(aPower) : Number.NEGATIVE_INFINITY;
+    const bStrength = Number.isFinite(bPower) ? Math.abs(bPower) : Number.NEGATIVE_INFINITY;
+    if (aStrength === bStrength) return aPower - bPower;
+    return aStrength - bStrength;
+  });
+}
+
 /** Principal astigmatic meridians are always 90° apart; snap the partner angle if data drifts. */
 const MERIDIAN_ORTHOGONAL_TOLERANCE_DEG = 2;
 
@@ -427,14 +438,14 @@ function enforcePerpendicularMeridianPair(weakAxisDeg: number, strongAxisDeg: nu
 }
 
 /**
- * Meridian direction (degrees) for overlays — same convention as scax-engine
- * `info.astigmatism` / `tabo` and Sturm `angleMajorDeg` (scene xy, 0–180°).
- * Do not apply legacy TABO chart mirroring here; that diverged from the engine test UI.
+ * Convert clinical TABO axis to scene xy angle (0-180°).
+ * TABO axis is mirrored relative to math xy angle in our renderer,
+ * so keep this conversion in one place for all meridian overlays.
  */
 function engineMeridianDeg(angleDeg: number): number {
   const v = Number(angleDeg);
   if (!Number.isFinite(v)) return 0;
-  return normalizeAxis180(v);
+  return normalizeAxis180(180 - v);
 }
 
 function createOrientedLineObject(
@@ -456,7 +467,8 @@ function createOrientedLineObject(
 function surfaceColor(type: string, name: string | undefined, colorTheme: ScaxColorTheme) {
   const lowerType = String(type ?? '').toLowerCase();
   const lowerName = String(name ?? '').toLowerCase();
-  if (lowerName === 'pupil_stop' || lowerType === 'aperture_stop') return colorTheme.surface.apertureStop;
+  if (lowerName === 'pupil_stop' || lowerType === 'aperture_stop')
+    return colorTheme.surface.apertureStop;
   if (lowerName.includes('cornea')) return colorTheme.surface.cornea;
   if (lowerName.includes('retina') || type === 'spherical-image') {
     return colorTheme.surface.sphericalImage;
@@ -1216,6 +1228,7 @@ export class ScaxWc extends LitElement {
       simulationData.tracedRays,
       simulationData.sourceRays,
       simulationData.sturmInfo,
+      simulationData.eyeAstigmatism,
       simulationData.lensAstigmatism,
       simulationData.combinedAstigmatism,
     );
@@ -1225,6 +1238,7 @@ export class ScaxWc extends LitElement {
     tracedRays: unknown[];
     sourceRays: unknown[];
     sturmInfo: SturmInfoLike[];
+    eyeAstigmatism: AstigmatismSummaryItem;
     lensAstigmatism: AstigmatismSummaryItem[];
     combinedAstigmatism: AstigmatismSummaryItem;
   } | null {
@@ -1244,6 +1258,11 @@ export class ScaxWc extends LitElement {
     )
       ? ((simulationResult as SimulateResult).info.astigmatism.lens ?? [])
       : [];
+    const eyeAstigmatism = Array.isArray(
+      (simulationResult as SimulateResult | null)?.info?.astigmatism?.eye?.[0],
+    )
+      ? ((simulationResult as SimulateResult).info.astigmatism.eye?.[0] ?? [])
+      : [];
     const combinedAstigmatism = Array.isArray(
       (simulationResult as SimulateResult | null)?.info?.astigmatism?.combined?.[0],
     )
@@ -1252,7 +1271,14 @@ export class ScaxWc extends LitElement {
     this.lastAffineResult = this.calculateAffineResult();
     // traced ray의 첫 점은 엔진의 광원 pose(position/tilt)가 반영된 실제 발광 위치입니다.
     const sourceRays = tracedRays;
-    return { tracedRays, sourceRays, sturmInfo, lensAstigmatism, combinedAstigmatism };
+    return {
+      tracedRays,
+      sourceRays,
+      sturmInfo,
+      eyeAstigmatism,
+      lensAstigmatism,
+      combinedAstigmatism,
+    };
   }
 
   private teardownScene(): void {
@@ -1330,6 +1356,7 @@ export class ScaxWc extends LitElement {
     tracedRays: unknown[],
     sourceRays: unknown[],
     sturmInfo: SturmInfoLike[],
+    eyeAstigmatism: AstigmatismSummaryItem,
     lensAstigmatism: AstigmatismSummaryItem[],
     combinedAstigmatism: AstigmatismSummaryItem,
   ) {
@@ -1369,27 +1396,34 @@ export class ScaxWc extends LitElement {
       firstAstigmaticSturm?.anterior?.profile?.angleMajorDeg ??
         firstAstigmaticSturm?.posterior?.profile?.angleMajorDeg,
     );
+    const eyeMeridians = eyeAstigmatism.filter(
+      (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
+    );
+    const [eyeWeakMeridian, eyeStrongMeridian] = sortMeridiansByPowerStrength(eyeMeridians);
+    const eyeWeakAxis = Number.isFinite(Number(eyeWeakMeridian?.tabo))
+      ? engineMeridianDeg(Number(eyeWeakMeridian?.tabo))
+      : normalizeAxis180(baseCorneaAxis);
+    const eyeStrongFromTabo = Number.isFinite(Number(eyeStrongMeridian?.tabo))
+      ? engineMeridianDeg(Number(eyeStrongMeridian?.tabo))
+      : normalizeAxis180(eyeWeakAxis + 90);
+    const eyeStrongAxis = eyeStrongFromTabo;
     const hasInsertedLens = lensSurfaces.length > 0;
     const hasInducedAstigmatism = hasInsertedLens && Number.isFinite(inducedAxisFromSturm);
     const activeCorneaAxisFromSturm = hasInducedAstigmatism
       ? normalizeAxis180(inducedAxisFromSturm + 90)
-      : normalizeAxis180(baseCorneaAxis);
+      : eyeWeakAxis;
     const combinedMeridians = combinedAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [combinedWeakMeridian, combinedStrongMeridian] = [...combinedMeridians].sort(
-      (a, b) => Number(a.d) - Number(b.d),
-    );
+    const [combinedWeakMeridian, combinedStrongMeridian] =
+      sortMeridiansByPowerStrength(combinedMeridians);
     const combinedWeakAxis = Number.isFinite(Number(combinedWeakMeridian?.tabo))
       ? engineMeridianDeg(Number(combinedWeakMeridian?.tabo))
       : activeCorneaAxisFromSturm;
     const combinedStrongFromTabo = Number.isFinite(Number(combinedStrongMeridian?.tabo))
       ? engineMeridianDeg(Number(combinedStrongMeridian?.tabo))
       : normalizeAxis180(combinedWeakAxis + 90);
-    const combinedStrongAxis =
-      combinedMeridians.length >= 2
-        ? enforcePerpendicularMeridianPair(combinedWeakAxis, combinedStrongFromTabo)
-        : combinedStrongFromTabo;
+    const combinedStrongAxis = combinedStrongFromTabo;
 
     const lensRadiusBySurface = new Map<SurfaceLike, number>();
     const configLenses = Array.isArray(this.config?.lens) ? this.config.lens : [];
@@ -1409,9 +1443,10 @@ export class ScaxWc extends LitElement {
       colorTheme,
     });
 
-    const eyeRotation = (
-      this.engine as unknown as { getEyeRotation?: () => EyeRotationForRenderLike | null }
-    ).getEyeRotation?.() ?? null;
+    const eyeRotation =
+      (
+        this.engine as unknown as { getEyeRotation?: () => EyeRotationForRenderLike | null }
+      ).getEyeRotation?.() ?? null;
     const needsEyeRotationGroup = eyeMeshes.length > 0 || Boolean(corneaAstigSurface);
     let eyeRenderGroup: THREE.Group | undefined;
     let eyeGeometryGroup: THREE.Group | undefined;
@@ -1625,24 +1660,22 @@ export class ScaxWc extends LitElement {
       addCorneaMeridian(activeMajor);
       addCorneaMeridian(activeMinor);
 
-      if (hasInducedAstigmatism) {
-        const baseMajor = this.createMeridianDashedLine(
-          corneaAstigSurface,
-          baseCorneaAxis,
-          halfLength,
-          colorTheme.meridian.eye.strong,
-          CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
-        );
-        const baseMinor = this.createMeridianDashedLine(
-          corneaAstigSurface,
-          baseCorneaAxis + 90,
-          halfLength,
-          colorTheme.meridian.eye.weak,
-          CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
-        );
-        addCorneaMeridian(baseMajor);
-        addCorneaMeridian(baseMinor);
-      }
+      const eyeMajor = this.createMeridianDashedLine(
+        corneaAstigSurface,
+        eyeStrongAxis,
+        halfLength,
+        colorTheme.meridian.eye.strong,
+        CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
+      );
+      const eyeMinor = this.createMeridianDashedLine(
+        corneaAstigSurface,
+        eyeWeakAxis,
+        halfLength,
+        colorTheme.meridian.eye.weak,
+        CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
+      );
+      addCorneaMeridian(eyeMajor);
+      addCorneaMeridian(eyeMinor);
     }
     this.meridianObjects = meridianObjects;
     for (const line of this.meridianObjects) {
@@ -1906,7 +1939,9 @@ export class ScaxWc extends LitElement {
         const dStrong = angleDistance180(angleDeg, strongFocalAxis);
         const dWeak = angleDistance180(angleDeg, weakFocalAxis);
         let color =
-          dStrong <= dWeak ? colorTheme.meridian.combined.strong : colorTheme.meridian.combined.weak;
+          dStrong <= dWeak
+            ? colorTheme.meridian.combined.strong
+            : colorTheme.meridian.combined.weak;
         // If focal axis matching is ambiguous, keep stronger power on nearer line.
         if (Math.abs(dStrong - dWeak) < 1e-6 && drawableProfiles.length >= 2) {
           const nearestIndex = drawableProfiles[0].center.z <= drawableProfiles[1].center.z ? 0 : 1;
@@ -1921,12 +1956,8 @@ export class ScaxWc extends LitElement {
       if (approxCenterPoint) {
         const markerGeometry = new THREE.SphereGeometry(0.7, 16, 12);
         const markerMaterial = new THREE.MeshStandardMaterial({
-          color: Number.isFinite(item?.color)
-            ? (item.color as number)
-            : 0x60a5fa,
-          emissive: Number.isFinite(item?.color)
-            ? (item.color as number)
-            : 0x60a5fa,
+          color: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
+          emissive: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
           emissiveIntensity: 0.2,
           metalness: 0.05,
           roughness: 0.4,
