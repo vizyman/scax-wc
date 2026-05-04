@@ -64,7 +64,7 @@
 
         demo.config = {
           eyeModel: 'navarro',
-          eye: { s: -2, c: -1, ax: 180 },
+          eye: { s: -2, c: -1, ax: 180, p: 0, p_ax: 0 },
           lens: [
             {
               type: 'lens',
@@ -140,6 +140,8 @@
           eyeS: -2,
           eyeC: -1,
           eyeAx: 180,
+          eyeP: 0,
+          eyePAx: 0,
           lensEnabled: true,
           lensS: -2,
           lensC: -1,
@@ -208,6 +210,8 @@
               s: uiState.eyeS,
               c: uiState.eyeC,
               ax: uiState.eyeAx,
+              p: uiState.eyeP,
+              p_ax: uiState.eyePAx,
             },
             lens,
             light_source: {
@@ -288,6 +292,8 @@
             eyeS: -2,
             eyeC: -1,
             eyeAx: 180,
+            eyeP: 0,
+            eyePAx: 0,
             lensEnabled: true,
             lensS: -2,
             lensC: -1,
@@ -341,6 +347,8 @@
         eyeFolder.add(uiState, 'eyeS', -12, 12, 0.25).name('S').onChange(applyConfig);
         eyeFolder.add(uiState, 'eyeC', -6, 6, 0.25).name('C').onChange(applyConfig);
         eyeFolder.add(uiState, 'eyeAx', 0, 180, 1).name('Axis').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyeP', 0, 20, 0.1).name('Prism (Δ)').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyePAx', 0, 360, 1).name('Prism Base Axis').onChange(applyConfig);
         eyeFolder.add(uiState, 'renderPupil').name('Render Pupil').onChange(applyConfig);
 
         const lensFolder = gui.addFolder('Lens');
@@ -402,7 +410,15 @@
           .onChange(applyConfig);
         colorFolder.addColor(uiState, 'crossBisectorColor').name('Cross Bisector').onChange(applyConfig);
 
-        gui.add({ reset: resetState }, 'reset').name('Reset');
+        gui.add(
+          {
+            reset() {
+              resetState();
+              gui.controllersRecursive().forEach((c) => c.updateDisplay());
+            },
+          },
+          'reset',
+        ).name('Reset');
 
         applyConfig();
         restoreCameraState();

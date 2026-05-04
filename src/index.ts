@@ -343,6 +343,25 @@ export function parseColorAttribute(raw: string | null): ScaxColorTheme {
 
 const CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM = -0.25;
 const LENS_MERIDIAN_ANTERIOR_OFFSET_MM = -0.2;
+/** 안구 회전점(각막 정점 기준 광축 방향 mm) — 엔진 `getEyeRotation`과 동일 기준 */
+const EYE_ROTATION_PIVOT_FROM_CORNEA_MM = 13;
+
+interface EyeRotationForRenderLike {
+  x_deg?: unknown;
+  y_deg?: unknown;
+}
+
+function applyEyeRenderRotation(
+  object3d: THREE.Object3D,
+  eyeRotationForRender: EyeRotationForRenderLike | null | undefined,
+): void {
+  if (!object3d) return;
+  const rxDeg = Number(eyeRotationForRender?.x_deg);
+  const ryDeg = Number(eyeRotationForRender?.y_deg);
+  // Prism (x,y) → 시뮬레이터와 동일: x → Yaw(Y), y → Pitch(X), Three +X pitch는 -Y 쪽이므로 y 부호 반전
+  object3d.rotation.x = Number.isFinite(ryDeg) ? THREE.MathUtils.degToRad(-ryDeg) : 0;
+  object3d.rotation.y = Number.isFinite(rxDeg) ? THREE.MathUtils.degToRad(rxDeg) : 0;
+}
 
 type SturmInfoLike = {
   color?: number;
@@ -1322,15 +1341,19 @@ export class ScaxWc extends LitElement {
     const state = this.engine as unknown as EngineStateLike;
     const lensSurfaces = Array.isArray(state.lens) ? state.lens : [];
     const eyeSurfaces = Array.isArray(state.surfaces) ? state.surfaces : [];
-    const ordered = [...lensSurfaces, ...eyeSurfaces]
-      .filter((surface) => {
-        const renderPupil = Boolean(this.config?.render?.pupil);
-        const lowerType = String(surface?.type ?? '').toLowerCase();
-        const lowerName = String(surface?.name ?? '').toLowerCase();
-        const isPupilSurface = lowerName === 'pupil_stop' || lowerType === 'aperture_stop';
-        if (isPupilSurface) return renderPupil;
-        return true;
-      })
+    const surfacePassesPupilFilter = (surface: SurfaceLike) => {
+      const renderPupil = Boolean(this.config?.render?.pupil);
+      const lowerType = String(surface?.type ?? '').toLowerCase();
+      const lowerName = String(surface?.name ?? '').toLowerCase();
+      const isPupilSurface = lowerName === 'pupil_stop' || lowerType === 'aperture_stop';
+      if (isPupilSurface) return renderPupil;
+      return true;
+    };
+    const lensOrdered = [...lensSurfaces]
+      .filter(surfacePassesPupilFilter)
+      .sort((a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z);
+    const eyeOrdered = [...eyeSurfaces]
+      .filter(surfacePassesPupilFilter)
       .sort((a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z);
     const corneaSurface = eyeSurfaces.find(
       (surface) => String(surface?.name ?? '').toLowerCase() === 'eye_st',
@@ -1377,12 +1400,45 @@ export class ScaxWc extends LitElement {
       lensRadiusBySurface.set(lensSurface, lensDiameter / 2);
     }
 
-    this.surfaceMeshes = buildSurfaceMeshes(ordered, {
+    const lensMeshes = buildSurfaceMeshes(lensOrdered, {
       resolveRadius: (surface) => lensRadiusBySurface.get(surface),
       colorTheme,
     });
-    for (const mesh of this.surfaceMeshes) {
+    const eyeMeshes = buildSurfaceMeshes(eyeOrdered, {
+      resolveRadius: (surface) => lensRadiusBySurface.get(surface),
+      colorTheme,
+    });
+
+    const eyeRotation = (
+      this.engine as unknown as { getEyeRotation?: () => EyeRotationForRenderLike | null }
+    ).getEyeRotation?.() ?? null;
+    const needsEyeRotationGroup = eyeMeshes.length > 0 || Boolean(corneaAstigSurface);
+    let eyeRenderGroup: THREE.Group | undefined;
+    let eyeGeometryGroup: THREE.Group | undefined;
+    if (needsEyeRotationGroup) {
+      eyeRenderGroup = new THREE.Group();
+      eyeRenderGroup.name = 'scax-eye-rotation';
+      eyeRenderGroup.position.set(0, 0, EYE_ROTATION_PIVOT_FROM_CORNEA_MM);
+      applyEyeRenderRotation(eyeRenderGroup, eyeRotation);
+      eyeGeometryGroup = new THREE.Group();
+      eyeGeometryGroup.name = 'scax-eye-geometry';
+      eyeGeometryGroup.position.set(0, 0, -EYE_ROTATION_PIVOT_FROM_CORNEA_MM);
+      eyeRenderGroup.add(eyeGeometryGroup);
+    }
+
+    this.surfaceMeshes = [...lensMeshes, ...(eyeRenderGroup ? [eyeRenderGroup] : [])];
+    for (const mesh of lensMeshes) {
       this.scene.add(mesh);
+    }
+    if (eyeRenderGroup && eyeGeometryGroup) {
+      for (const mesh of eyeMeshes) {
+        eyeGeometryGroup.add(mesh);
+      }
+      this.scene.add(eyeRenderGroup);
+    } else {
+      for (const mesh of eyeMeshes) {
+        this.scene.add(mesh);
+      }
     }
     this.rayObjects = buildRayObjectsWithTheme(tracedRays, colorTheme);
     for (const object of this.rayObjects) {
@@ -1561,8 +1617,13 @@ export class ScaxWc extends LitElement {
         colorTheme.meridian.combined.strong,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
-      if (activeMajor) meridianObjects.push(activeMajor);
-      if (activeMinor) meridianObjects.push(activeMinor);
+      const addCorneaMeridian = (line: THREE.Line | null) => {
+        if (!line) return;
+        if (eyeGeometryGroup) eyeGeometryGroup.add(line);
+        else meridianObjects.push(line);
+      };
+      addCorneaMeridian(activeMajor);
+      addCorneaMeridian(activeMinor);
 
       if (hasInducedAstigmatism) {
         const baseMajor = this.createMeridianDashedLine(
@@ -1579,8 +1640,8 @@ export class ScaxWc extends LitElement {
           colorTheme.meridian.eye.weak,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
-        if (baseMajor) meridianObjects.push(baseMajor);
-        if (baseMinor) meridianObjects.push(baseMinor);
+        addCorneaMeridian(baseMajor);
+        addCorneaMeridian(baseMinor);
       }
     }
     this.meridianObjects = meridianObjects;
@@ -1883,18 +1944,20 @@ export class ScaxWc extends LitElement {
     if (!this.scene) return;
     for (const object of objects) {
       this.scene.remove(object);
-      const disposable = object as unknown as {
-        geometry?: { dispose?: () => void };
-        material?: { dispose?: () => void } | { dispose?: () => void }[];
-      };
-      disposable.geometry?.dispose?.();
-      if (Array.isArray(disposable.material)) {
-        for (const material of disposable.material) {
-          material.dispose?.();
+      object.traverse((child) => {
+        const disposable = child as unknown as {
+          geometry?: { dispose?: () => void };
+          material?: { dispose?: () => void } | { dispose?: () => void }[];
+        };
+        disposable.geometry?.dispose?.();
+        if (Array.isArray(disposable.material)) {
+          for (const material of disposable.material) {
+            material.dispose?.();
+          }
+        } else {
+          disposable.material?.dispose?.();
         }
-      } else {
-        disposable.material?.dispose?.();
-      }
+      });
     }
 
     if (objects === this.surfaceMeshes) {
