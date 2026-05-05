@@ -44,7 +44,6 @@ type CameraRenderOptions = {
   enableZoom?: boolean;
   enablePan?: boolean;
   enableRotate?: boolean;
-  autoFit?: boolean;
 };
 
 type CameraPose = {
@@ -135,7 +134,6 @@ export function defaultCameraOptions(): CameraRenderOptions {
     enableZoom: true,
     enablePan: true,
     enableRotate: true,
-    autoFit: false,
   };
 }
 
@@ -167,7 +165,6 @@ export function mergeCameraOptions(
     enableZoom: partial.enableZoom ?? base.enableZoom,
     enablePan: partial.enablePan ?? base.enablePan,
     enableRotate: partial.enableRotate ?? base.enableRotate,
-    autoFit: partial.autoFit ?? base.autoFit,
   };
 }
 
@@ -1129,7 +1126,6 @@ export class ScaxWc extends LitElement {
   private lightSourceObjects: THREE.Object3D[] = [];
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
-  private hasInitialCameraFit = false;
   private lastSimulationResult: unknown = null;
   private lastSturmResult: unknown = null;
   private lastAffineResult: AffineResultLike | null = null;
@@ -1708,10 +1704,7 @@ export class ScaxWc extends LitElement {
       this.scene.add(line);
     }
 
-    if ((this.getEffectiveCameraOptions().autoFit ?? false) && !this.hasInitialCameraFit) {
-      this.fitCameraToObjects(this.getCameraFitObjects());
-      this.hasInitialCameraFit = true;
-    }
+    this.fitCameraToObjects(this.getCameraFitObjects());
   }
 
   private getCameraFitObjects(): THREE.Object3D[] {
@@ -1883,7 +1876,7 @@ export class ScaxWc extends LitElement {
       const horizontalFovRad = 2 * Math.atan(Math.tan(verticalFovRad / 2) * this.viewCamera.aspect);
       const fitHeightDistance = maxSize / (2 * Math.tan(verticalFovRad / 2));
       const fitWidthDistance = maxSize / (2 * Math.tan(horizontalFovRad / 2));
-      const fitOffset = 1.2;
+      const fitOffset = 1.08;
       const distance = Math.max(fitHeightDistance, fitWidthDistance) * fitOffset;
 
       this.viewCamera.position.copy(center.clone().addScaledVector(viewDirection, distance));
@@ -1891,7 +1884,7 @@ export class ScaxWc extends LitElement {
       this.viewCamera.far = Math.max(2000, distance * 100);
       this.viewCamera.updateProjectionMatrix();
     } else {
-      const fitOffset = 1.4;
+      const fitOffset = 1.15;
       const halfHeight = (maxSize * fitOffset) / 2;
       const aspect =
         this.renderer && this.renderer.domElement.clientHeight > 0
@@ -2232,12 +2225,15 @@ export class ScaxWc extends LitElement {
 
   private getEffectiveCameraOptions(): CameraRenderOptions {
     const base = defaultCameraOptions();
+    const hasEnableZoom = this.hasAttribute('enable-zoom');
+    const hasEnablePan = this.hasAttribute('enable-pan');
+    const hasEnableRotate = this.hasAttribute('enable-rotate');
     return {
       ...base,
       projection: isCameraProjection(this.projection) ? this.projection : base.projection,
-      enableZoom: this.enableZoom ?? base.enableZoom,
-      enablePan: this.enablePan ?? base.enablePan,
-      enableRotate: this.enableRotate ?? base.enableRotate,
+      enableZoom: hasEnableZoom ? this.enableZoom : base.enableZoom,
+      enablePan: hasEnablePan ? this.enablePan : base.enablePan,
+      enableRotate: hasEnableRotate ? this.enableRotate : base.enableRotate,
     };
   }
 }
