@@ -1980,13 +1980,15 @@ export class ScaxWc extends LitElement {
       }
 
       if (approxCenterPoint) {
-        const markerGeometry = new THREE.SphereGeometry(0.7, 16, 12);
+        const diskRadiusMm = 0.7;
+        const markerGeometry = new THREE.CircleGeometry(diskRadiusMm, 48);
         const markerMaterial = new THREE.MeshStandardMaterial({
           color: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
           emissive: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
           emissiveIntensity: 0.2,
           metalness: 0.05,
           roughness: 0.4,
+          side: THREE.DoubleSide,
         });
         const marker = new THREE.Mesh(markerGeometry, markerMaterial);
         marker.position.copy(approxCenterPoint);
