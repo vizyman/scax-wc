@@ -1126,6 +1126,7 @@ export class ScaxWc extends LitElement {
   private lightSourceObjects: THREE.Object3D[] = [];
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
+  private hasAutoFittedCamera = false;
   private lastSimulationResult: unknown = null;
   private lastSturmResult: unknown = null;
   private lastAffineResult: AffineResultLike | null = null;
@@ -1704,7 +1705,10 @@ export class ScaxWc extends LitElement {
       this.scene.add(line);
     }
 
-    this.fitCameraToObjects(this.getCameraFitObjects());
+    if (!this.hasAutoFittedCamera) {
+      this.fitCameraToObjects(this.getCameraFitObjects());
+      this.hasAutoFittedCamera = true;
+    }
   }
 
   private getCameraFitObjects(): THREE.Object3D[] {
