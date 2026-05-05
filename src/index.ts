@@ -415,6 +415,24 @@ function angleDistance180(aDeg: number, bDeg: number): number {
   return Math.min(diff, 180 - diff);
 }
 
+/** Whether two perpendicular meridian pairs occupy the same axes (order may differ). */
+const MERIDIAN_AXIS_PAIR_MATCH_EPS = 1e-9;
+
+function meridianPrincipalAxesCoincide(
+  weak1Deg: number,
+  strong1Deg: number,
+  weak2Deg: number,
+  strong2Deg: number,
+): boolean {
+  const sameOrder =
+    angleDistance180(weak1Deg, weak2Deg) <= MERIDIAN_AXIS_PAIR_MATCH_EPS &&
+    angleDistance180(strong1Deg, strong2Deg) <= MERIDIAN_AXIS_PAIR_MATCH_EPS;
+  const swapped =
+    angleDistance180(weak1Deg, strong2Deg) <= MERIDIAN_AXIS_PAIR_MATCH_EPS &&
+    angleDistance180(strong1Deg, weak2Deg) <= MERIDIAN_AXIS_PAIR_MATCH_EPS;
+  return sameOrder || swapped;
+}
+
 function sortMeridiansByPowerStrength<T extends { d?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
     const aPower = Number(a?.d);
@@ -1660,22 +1678,30 @@ export class ScaxWc extends LitElement {
       addCorneaMeridian(activeMajor);
       addCorneaMeridian(activeMinor);
 
-      const eyeMajor = this.createMeridianDashedLine(
-        corneaAstigSurface,
-        eyeStrongAxis,
-        halfLength,
-        colorTheme.meridian.eye.strong,
-        CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
-      );
-      const eyeMinor = this.createMeridianDashedLine(
-        corneaAstigSurface,
+      const eyeOverlapsCombined = meridianPrincipalAxesCoincide(
         eyeWeakAxis,
-        halfLength,
-        colorTheme.meridian.eye.weak,
-        CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
+        eyeStrongAxis,
+        combinedWeakAxis,
+        combinedStrongAxis,
       );
-      addCorneaMeridian(eyeMajor);
-      addCorneaMeridian(eyeMinor);
+      if (!eyeOverlapsCombined) {
+        const eyeMajor = this.createMeridianDashedLine(
+          corneaAstigSurface,
+          eyeStrongAxis,
+          halfLength,
+          colorTheme.meridian.eye.strong,
+          CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
+        const eyeMinor = this.createMeridianDashedLine(
+          corneaAstigSurface,
+          eyeWeakAxis,
+          halfLength,
+          colorTheme.meridian.eye.weak,
+          CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
+        addCorneaMeridian(eyeMajor);
+        addCorneaMeridian(eyeMinor);
+      }
     }
     this.meridianObjects = meridianObjects;
     for (const line of this.meridianObjects) {
