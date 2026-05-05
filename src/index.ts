@@ -1916,9 +1916,8 @@ export class ScaxWc extends LitElement {
     const combinedMeridians = combinedAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [combinedWeak, combinedStrong] = [...combinedMeridians].sort(
-      (a, b) => Number(a.d) - Number(b.d),
-    );
+    // Keep principal meridian classification sign-agnostic (myopia/hyperopia).
+    const [combinedWeak, combinedStrong] = sortMeridiansByPowerStrength(combinedMeridians);
     const weakAxisDeg = Number.isFinite(Number(combinedWeak?.tabo))
       ? engineMeridianDeg(Number(combinedWeak?.tabo))
       : 90;
