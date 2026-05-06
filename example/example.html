@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <script type="importmap">
+      {
+        "imports": {
+          "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.js"
+        }
+      }
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SCAX WC UI Example</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        font-family: Arial, sans-serif;
+        background: #0f172a;
+      }
+
+      body {
+        overflow: hidden;
+      }
+
+      .container {
+        width: 100%;
+        height: 100%;
+      }
+
+      scax-wc {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <scax-wc id="demo"></scax-wc>
+    </main>
+
+    <!-- dist 빌드 결과 ESM을 직접 로드 -->
+    <script type="module">
+      import GUI from 'lil-gui';
+      import '../dist/scax-wc.esm.js';
+
+      const VD = -18;
+      const CAMERA_STATE_STORAGE_KEY = 'scax-camera-state';
+      const demo = document.getElementById('demo');
+      if (demo) {
+        // camera attribute/property example
+        // projection: perspective | orthogonal
+        demo.projection = 'perspective';
+        demo.enableZoom = true;
+        demo.enablePan = true;
+        demo.enableRotate = true;
+
+        demo.config = {
+          eyeModel: 'navarro',
+          eye: { s: -2, c: -1, ax: 180, p: 0, p_ax: 0 },
+          lens: [
+            {
+              type: 'lens',
+              s: -2,
+              c: -1,
+              ax: 180,
+              position: { x: 0, y: 0, z: VD },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            },
+            {
+              type: 'cross-cylinder',
+              s: -0.25,
+              c: 0.5,
+              ax: 90,
+              position: { x: 0, y: 0, z: VD - 2 },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            },
+          ],
+          light_source: {
+            type: 'grid_rg',
+            width: 3,
+            height: 3,
+            division: 5,
+            z: -50,
+            vergence: 0,
+          },
+          // {
+          //   type: 'grid',
+          //   width: 0.5,
+          //   height: 0.5,
+          //   division: 5,
+          //   z: -50,
+          //   vergence: 0,
+          // },
+          pupil_type: 'neutral',
+          render: {
+            pupil: false,
+          },
+        };
+        demo.color = {
+          scene: { background: '#0f172a' },
+          surface: {
+            apertureStop: '#000000',
+            cornea: '#f8fafc',
+            compound: '#60a5fa',
+            toric: '#c084fc',
+            sphericalImage: '#fb923c',
+            aspherical: '#22d3ee',
+          },
+          meridian: {
+            combined: { strong: '#f59e0b', weak: '#06b6d4' },
+            eye: { strong: '#38bdf8', weak: '#f472b6' },
+            lens: {
+              strong: '#3b82f6',
+              weak: '#ec4899',
+            },
+          },
+          cross_cylinder: {
+            plus: '#ef4444',
+            minus: '#ffffff',
+            plusMarker: '#ef4444',
+            minusMarker: '#ffffff',
+            bisector: '#000000',
+          },
+        };
+        const uiState = {
+          projection: 'perspective',
+          enableZoom: true,
+          enablePan: true,
+          enableRotate: true,
+          eyeS: -2,
+          eyeC: -1,
+          eyeAx: 180,
+          eyeP: 0,
+          eyePAx: 0,
+          lensEnabled: true,
+          lensS: -2,
+          lensC: -1,
+          lensAx: 180,
+          lensZ: VD,
+          crossCylinderEnabled: true,
+          crossCylinderC: 0.5,
+          crossCylinderAx: 90,
+          crossCylinderZ: VD - 2,
+          lightType: 'grid_rg',
+          lightDivision: 5,
+          lightVergence: 0,
+          renderPupil: false,
+          sceneBackground: '#0f172a',
+          apertureStopColor: '#000000',
+          corneaColor: '#f8fafc',
+          compoundSurfaceColor: '#60a5fa',
+          toricColor: '#c084fc',
+          sphericalImageColor: '#fb923c',
+          asphericalColor: '#22d3ee',
+          combinedStrongColor: '#f59e0b',
+          combinedWeakColor: '#06b6d4',
+          eyeStrongColor: '#38bdf8',
+          eyeWeakColor: '#f472b6',
+          lensStrongColor: '#3b82f6',
+          lensWeakColor: '#ec4899',
+          crossPlusColor: '#ef4444',
+          crossMinusColor: '#ffffff',
+          crossPlusMarkerColor: '#ef4444',
+          crossMinusMarkerColor: '#ffffff',
+          crossBisectorColor: '#000000',
+        };
+        
+        const applyConfig = () => {
+          const lens = [];
+          if (uiState.lensEnabled) {
+            lens.push({
+              type: 'lens',
+              s: uiState.lensS,
+              c: uiState.lensC,
+              ax: uiState.lensAx,
+              position: { x: 0, y: 0, z: uiState.lensZ },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            });
+          }
+          if (uiState.crossCylinderEnabled) {
+            lens.push({
+              type: 'cross-cylinder',
+              s: -0.25,
+              c: uiState.crossCylinderC,
+              ax: uiState.crossCylinderAx,
+              position: { x: 0, y: 0, z: uiState.crossCylinderZ },
+              tilt: { x: 0, y: 0 },
+              diameter: 12,
+            });
+          }
+
+          demo.projection = uiState.projection;
+          demo.enableZoom = uiState.enableZoom;
+          demo.enablePan = uiState.enablePan;
+          demo.enableRotate = uiState.enableRotate;
+          demo.config = {
+            eyeModel: 'navarro',
+            eye: {
+              s: uiState.eyeS,
+              c: uiState.eyeC,
+              ax: uiState.eyeAx,
+              p: uiState.eyeP,
+              p_ax: uiState.eyePAx,
+            },
+            lens,
+            light_source: {
+              type: uiState.lightType,
+              width: 0.5,
+              height: 0.5,
+              division: uiState.lightDivision,
+              z: -50,
+              vergence: uiState.lightVergence,
+            },
+            pupil_type: 'neutral',
+            render: {
+              pupil: uiState.renderPupil,
+            },
+          };
+          demo.color = {
+            scene: { background: uiState.sceneBackground },
+            surface: {
+              apertureStop: uiState.apertureStopColor,
+              cornea: uiState.corneaColor,
+              compound: uiState.compoundSurfaceColor,
+              toric: uiState.toricColor,
+              sphericalImage: uiState.sphericalImageColor,
+              aspherical: uiState.asphericalColor,
+            },
+            meridian: {
+              combined: {
+                strong: uiState.combinedStrongColor,
+                weak: uiState.combinedWeakColor,
+              },
+              eye: {
+                strong: uiState.eyeStrongColor,
+                weak: uiState.eyeWeakColor,
+              },
+              lens: {
+                strong: uiState.lensStrongColor,
+                weak: uiState.lensWeakColor,
+              },
+            },
+            cross_cylinder: {
+              plus: uiState.crossPlusColor,
+              minus: uiState.crossMinusColor,
+              plusMarker: uiState.crossPlusMarkerColor,
+              minusMarker: uiState.crossMinusMarkerColor,
+              bisector: uiState.crossBisectorColor,
+            },
+          };
+        };
+
+        const saveCameraState = () => {
+          const state = demo.getCameraState();
+          localStorage.setItem(CAMERA_STATE_STORAGE_KEY, JSON.stringify(state));
+        };
+
+        const restoreCameraState = () => {
+          const raw = localStorage.getItem(CAMERA_STATE_STORAGE_KEY);
+          if (!raw) return;
+          try {
+            const state = JSON.parse(raw);
+            demo.setCameraState(state);
+            if (
+              state &&
+              (state.projection === 'perspective' || state.projection === 'orthogonal')
+            ) {
+              uiState.projection = state.projection;
+            }
+          } catch (error) {
+            console.warn('Failed to parse saved camera state:', error);
+          }
+        };
+
+        const resetState = () => {
+          Object.assign(uiState, {
+            projection: 'perspective',
+            enableZoom: true,
+            enablePan: true,
+            enableRotate: true,
+            eyeS: -2,
+            eyeC: -1,
+            eyeAx: 180,
+            eyeP: 0,
+            eyePAx: 0,
+            lensEnabled: true,
+            lensS: -2,
+            lensC: -1,
+            lensAx: 180,
+            lensZ: VD,
+            crossCylinderEnabled: true,
+            crossCylinderC: 0.5,
+            crossCylinderAx: 90,
+            crossCylinderZ: VD - 2,
+            lightType: 'grid_rg',
+            lightDivision: 5,
+            lightVergence: 0,
+            renderPupil: false,
+            sceneBackground: '#0f172a',
+            apertureStopColor: '#000000',
+            corneaColor: '#f8fafc',
+            compoundSurfaceColor: '#60a5fa',
+            toricColor: '#c084fc',
+            sphericalImageColor: '#fb923c',
+            asphericalColor: '#22d3ee',
+            combinedStrongColor: '#f59e0b',
+            combinedWeakColor: '#06b6d4',
+            eyeStrongColor: '#38bdf8',
+            eyeWeakColor: '#f472b6',
+            lensStrongColor: '#3b82f6',
+            lensWeakColor: '#ec4899',
+            crossPlusColor: '#ef4444',
+            crossMinusColor: '#ffffff',
+            crossPlusMarkerColor: '#ef4444',
+            crossMinusMarkerColor: '#ffffff',
+            crossBisectorColor: '#000000',
+          });
+          applyConfig();
+        };
+
+        const gui = new GUI({ title: 'SCAX Controls' });
+        gui.domElement.style.zIndex = '20';
+
+        const cameraFolder = gui.addFolder('Camera');
+        cameraFolder
+          .add(uiState, 'projection', ['orthogonal', 'perspective'])
+          .name('Projection')
+          .onChange(applyConfig);
+        cameraFolder.add(uiState, 'enableZoom').name('Enable Zoom').onChange(applyConfig);
+        cameraFolder.add(uiState, 'enablePan').name('Enable Pan').onChange(applyConfig);
+        cameraFolder.add(uiState, 'enableRotate').name('Enable Rotate').onChange(applyConfig);
+        cameraFolder.add({ saveCameraState }, 'saveCameraState').name('Save Camera');
+        cameraFolder.add({ restoreCameraState }, 'restoreCameraState').name('Restore Camera');
+
+        const eyeFolder = gui.addFolder('Eye');
+        eyeFolder.add(uiState, 'eyeS', -12, 12, 0.25).name('S').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyeC', -6, 6, 0.25).name('C').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyeAx', 0, 180, 1).name('Axis').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyeP', 0, 20, 0.1).name('Prism (Δ)').onChange(applyConfig);
+        eyeFolder.add(uiState, 'eyePAx', 0, 360, 1).name('Prism Base Axis').onChange(applyConfig);
+        eyeFolder.add(uiState, 'renderPupil').name('Render Pupil').onChange(applyConfig);
+
+        const lensFolder = gui.addFolder('Lens');
+        lensFolder.add(uiState, 'lensEnabled').name('Enable Lens').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensS', -12, 12, 0.25).name('Lens S').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensC', -6, 6, 0.25).name('Lens C').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensAx', 0, 180, 1).name('Lens Axis').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensZ', -30, -5, 0.5).name('Lens Z').onChange(applyConfig);
+
+        const crossFolder = gui.addFolder('Cross Cylinder');
+        crossFolder.add(uiState, 'crossCylinderEnabled').name('Enable XCyl').onChange(applyConfig);
+        crossFolder.add(uiState, 'crossCylinderC', 0, 2, 0.25).name('XCyl C').onChange(applyConfig);
+        crossFolder
+          .add(uiState, 'crossCylinderAx', 0, 180, 1)
+          .name('XCyl Axis')
+          .onChange(applyConfig);
+        crossFolder
+          .add(uiState, 'crossCylinderZ', -30, -5, 0.5)
+          .name('XCyl Z')
+          .onChange(applyConfig);
+
+        const lightFolder = gui.addFolder('Light Source');
+        lightFolder
+          .add(uiState, 'lightType', ['grid_rg', 'grid'])
+          .name('Type')
+          .onChange(applyConfig);
+        lightFolder.add(uiState, 'lightDivision', 1, 12, 1).name('Division').onChange(applyConfig);
+        lightFolder
+          .add(uiState, 'lightVergence', -2, 2, 0.1)
+          .name('Vergence')
+          .onChange(applyConfig);
+
+        const colorFolder = gui.addFolder('Color');
+        colorFolder.addColor(uiState, 'sceneBackground').name('Scene BG').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'apertureStopColor').name('Aperture Stop').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'corneaColor').name('Cornea').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'compoundSurfaceColor').name('Compound').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'toricColor').name('Toric').onChange(applyConfig);
+        colorFolder
+          .addColor(uiState, 'sphericalImageColor')
+          .name('Spherical Image')
+          .onChange(applyConfig);
+        colorFolder.addColor(uiState, 'asphericalColor').name('Aspherical').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'combinedStrongColor').name('Combined Strong').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'combinedWeakColor').name('Combined Weak').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'eyeStrongColor').name('Eye Strong').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'eyeWeakColor').name('Eye Weak').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'lensStrongColor').name('Lens Strong').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'lensWeakColor').name('Lens Weak').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'crossPlusColor').name('Cross Plus').onChange(applyConfig);
+        colorFolder.addColor(uiState, 'crossMinusColor').name('Cross Minus').onChange(applyConfig);
+        colorFolder
+          .addColor(uiState, 'crossPlusMarkerColor')
+          .name('Cross Plus Marker')
+          .onChange(applyConfig);
+        colorFolder
+          .addColor(uiState, 'crossMinusMarkerColor')
+          .name('Cross Minus Marker')
+          .onChange(applyConfig);
+        colorFolder.addColor(uiState, 'crossBisectorColor').name('Cross Bisector').onChange(applyConfig);
+
+        gui.add(
+          {
+            reset() {
+              resetState();
+              gui.controllersRecursive().forEach((c) => c.updateDisplay());
+            },
+          },
+          'reset',
+        ).name('Reset');
+
+        applyConfig();
+        restoreCameraState();
+
+        // quick camera switch demo
+        // setTimeout(() => {
+        //   demo.projection = 'orthogonal';
+        // }, 1500);
+        // setTimeout(() => {
+        //   demo.projection = 'perspective';
+        // }, 3000);
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,1899 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.174.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.174.0/examples/jsm/",
+            "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.js"
+        }
+    }
+</script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCAX UMD UI Test</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #111827;
+      color: #e5e7eb;
+      font-family: Arial, sans-serif;
+    }
+    #app {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    #hud {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 5;
+      background: rgba(17, 24, 39, 0.85);
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.4;
+      max-width: 420px;
+      white-space: pre-line;
+    }
+    #affine-panel {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 20;
+      background: rgba(17, 24, 39, 0.85);
+      border: 1px solid #3b82f6;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.4;
+      max-width: 420px;
+      white-space: pre-line;
+    }
+    #affine-title {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    #affine-canvas {
+      display: block;
+      width: 420px;
+      height: 340px;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      background: #020617;
+      margin-bottom: 8px;
+    }
+    #affine-meta {
+      white-space: pre-line;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="hud">Loading...</div>
+    <div id="affine-panel">Affine: Loading...</div>
+  </div>
+
+  <script src="https://unpkg.com/scax-engine@0.1.0/dist/scax-engine.umd.js"></script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import GUI from "lil-gui";
+
+    (function () {
+      const hud = document.getElementById("hud");
+      const affinePanel = document.getElementById("affine-panel");
+      const app = document.getElementById("app");
+      const ScaxEngine = globalThis.ScaxEngine;
+
+      if (!THREE || !ScaxEngine || !ScaxEngine.SCAXEngine || !affinePanel) {
+        hud.textContent = "Failed to load THREE or ScaxEngine UMD bundle.";
+        return;
+      }
+      affinePanel.innerHTML =
+        '<div id="affine-title">Affine Distortion (Current)</div>' +
+        '<canvas id="affine-canvas" width="420" height="340"></canvas>' +
+        '<div id="affine-meta">Loading...</div>';
+      const affineCanvas = document.getElementById("affine-canvas");
+      const affineMeta = document.getElementById("affine-meta");
+      if (!affineCanvas || !affineMeta) {
+        hud.textContent = "Failed to initialize affine panel.";
+        return;
+      }
+      const affineCtx = affineCanvas.getContext("2d");
+      if (!affineCtx) {
+        hud.textContent = "Failed to initialize affine canvas.";
+        return;
+      }
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0f172a);
+
+      const camera = new THREE.PerspectiveCamera(
+        55,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        2000
+      );
+      camera.position.set(120, 120, -80);
+      camera.lookAt(0, 0, 0);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      app.appendChild(renderer.domElement);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 0, 0);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.update();
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+      const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+      directional.position.set(80, -60, 100);
+      scene.add(ambient, directional);
+      scene.add(new THREE.AxesHelper(20));
+      scene.add(new THREE.GridHelper(200, 20, 0x334155, 0x1f2937));
+      const simulationObjects = [];
+      function addSimulationObject(object3d, parent) {
+        simulationObjects.push(object3d);
+        if (parent && typeof parent.add === "function") {
+          parent.add(object3d);
+          return;
+        }
+        scene.add(object3d);
+      }
+      function disposeObject3D(object3d) {
+        if (!object3d) return;
+        if (typeof object3d.traverse === "function") {
+          object3d.traverse(function (node) {
+            if (node?.geometry && typeof node.geometry.dispose === "function") {
+              node.geometry.dispose();
+            }
+            if (node?.material) {
+              if (Array.isArray(node.material)) {
+                node.material.forEach(function (m) {
+                  if (m && typeof m.dispose === "function") m.dispose();
+                });
+              } else if (typeof node.material.dispose === "function") {
+                node.material.dispose();
+              }
+            }
+          });
+          return;
+        }
+        if (object3d?.geometry && typeof object3d.geometry.dispose === "function") {
+          object3d.geometry.dispose();
+        }
+        if (object3d?.material) {
+          if (Array.isArray(object3d.material)) {
+            object3d.material.forEach(function (m) {
+              if (m && typeof m.dispose === "function") m.dispose();
+            });
+          } else if (typeof object3d.material.dispose === "function") {
+            object3d.material.dispose();
+          }
+        }
+      }
+      function clearSimulationObjects() {
+        simulationObjects.forEach(function (object3d) {
+          disposeObject3D(object3d);
+          if (object3d?.parent) {
+            object3d.parent.remove(object3d);
+          } else {
+            scene.remove(object3d);
+          }
+        });
+        simulationObjects.length = 0;
+      }
+
+      const searchParams = new URLSearchParams(window.location.search);
+      function toNumberParam(key, fallback) {
+        const n = Number(searchParams.get(key));
+        return Number.isFinite(n) ? n : fallback;
+      }
+      function toBooleanParam(key, fallback) {
+        const value = String(searchParams.get(key) ?? "").toLowerCase();
+        if (value === "1" || value === "true" || value === "yes" || value === "on") return true;
+        if (value === "0" || value === "false" || value === "no" || value === "off") return false;
+        return fallback;
+      }
+
+      /** 잭슨 크로스 실린더 주경선(D) — UI에서 고정. ST 입력: 약한 경선 s, 강한 경선 s+c, 축 TABO(deg). */
+      const CROSS_CYL_MERIDIAN_PLUS_D = 0.25;
+      const CROSS_CYL_MERIDIAN_MINUS_D = -0.25;
+      const SPECTACLE_VD_Z_MM = -18;
+      const EYE_ROTATION_PIVOT_FROM_CORNEA_MM = 13;
+
+      const uiState = {
+        eyeModel: (searchParams.get("eyeModel") === "gullstrand" ? "gullstrand" : "navarro"),
+        pupilType: (function () {
+          const value = String(searchParams.get("pupilType") || "neutral");
+          if (value === "constricted" || value === "dilated" || value === "none") return value;
+          return "neutral";
+        })(),
+        eyeS: toNumberParam("eyeS", 0.0),
+        eyeC: toNumberParam("eyeC", 0.0),
+        eyeAx: toNumberParam("eyeAx", 180),
+        eyeP: toNumberParam("eyeP", 0),
+        eyePAx: toNumberParam("eyePAx", 0),
+        eyeTiltX: toNumberParam("eyeTiltX", 0),
+        eyeTiltY: toNumberParam("eyeTiltY", 0),
+        lightSourceType: (function () {
+          const value = String(searchParams.get("lsType") || "grid");
+          if (value === "radial" || value === "grid_rg") return value;
+          return "grid";
+        })(),
+        lightWidth: toNumberParam("lsWidth", 0.5),
+        lightHeight: toNumberParam("lsHeight", 0.5),
+        lightDivision: toNumberParam("lsDivision", 5),
+        lightRadius: toNumberParam("lsRadius", 0.5),
+        lightAngleDivision: toNumberParam("lsAngleDivision", 8),
+        lightZ: toNumberParam("lsZ", -50),
+        lightVergence: toNumberParam("lsVergence", 0),
+        lightPosX: toNumberParam("lsPosX", 0),
+        lightPosY: toNumberParam("lsPosY", 0),
+        lightPosZ: toNumberParam("lsPosZ", 0),
+        lightTiltX: toNumberParam("lsTiltX", 0),
+        lightTiltY: toNumberParam("lsTiltY", 0),
+        spectacleEnabled: toBooleanParam("specOn", false),
+        spectacleS: toNumberParam("specS", 0.0),
+        spectacleC: toNumberParam("specC", 0.0),
+        spectacleAx: toNumberParam("specAx", 180),
+        spectacleP: toNumberParam("specP", 0),
+        spectaclePAx: toNumberParam("specPAx", 0),
+        spectaclePosX: toNumberParam("specPosX", 0),
+        spectaclePosY: toNumberParam("specPosY", 0),
+        spectaclePosZ: toNumberParam("specPosZ", SPECTACLE_VD_Z_MM),
+        spectacleTiltX: toNumberParam("specTiltX", 0),
+        spectacleTiltY: toNumberParam("specTiltY", 0),
+        crossCylinderEnabled: toBooleanParam("xcylOn", false),
+        crossCylinderAx: toNumberParam("xcylAx", 180),
+      };
+
+      function buildLensConfigs(state) {
+        const lens = [];
+        const specS = Number(state.spectacleS);
+        const specC = Number(state.spectacleC);
+        const specP = Number(state.spectacleP);
+        const specAx = Number(state.spectacleAx);
+        const specPAx = Number(state.spectaclePAx);
+        const specPosX = Number(state.spectaclePosX);
+        const specPosY = Number(state.spectaclePosY);
+        const specPosZ = Number(state.spectaclePosZ);
+        const specTiltX = Number(state.spectacleTiltX);
+        const specTiltY = Number(state.spectacleTiltY);
+        if (state.crossCylinderEnabled) {
+          const s = CROSS_CYL_MERIDIAN_PLUS_D;
+          const c = CROSS_CYL_MERIDIAN_MINUS_D - CROSS_CYL_MERIDIAN_PLUS_D;
+          lens.push({
+            s: s,
+            c: c,
+            ax: Number(state.crossCylinderAx),
+            p: 0,
+            p_ax: 0,
+            // VD-2 means 2 mm closer to the eye (z increases toward eye).
+            position: { x: 0, y: 0, z: SPECTACLE_VD_Z_MM + 2 },
+            tilt: { x: 0, y: 0 },
+          });
+        }
+        if (state.spectacleEnabled) {
+          lens.push({
+            s: specS,
+            c: specC,
+            ax: specAx,
+            p: specP,
+            p_ax: specPAx,
+            position: {
+              x: specPosX,
+              y: specPosY,
+              z: specPosZ,
+            },
+            tilt: {
+              x: specTiltX,
+              y: specTiltY,
+            },
+          });
+        }
+        return lens;
+      }
+
+      function buildLightSourceConfig(state) {
+        const commonTransform = {
+          position: {
+            x: Number(state.lightPosX),
+            y: Number(state.lightPosY),
+            z: Number(state.lightPosZ),
+          },
+          tilt: {
+            x: Number(state.lightTiltX),
+            y: Number(state.lightTiltY),
+          },
+        };
+        if (state.lightSourceType === "radial") {
+          return {
+            type: "radial",
+            radius: Number(state.lightRadius),
+            division: Math.max(4, Math.round(Number(state.lightDivision))),
+            angle_division: Math.max(4, Math.round(Number(state.lightAngleDivision))),
+            z: Number(state.lightZ),
+            vergence: Number(state.lightVergence),
+            ...commonTransform,
+          };
+        }
+        if (state.lightSourceType === "grid_rg") {
+          return {
+            type: "grid_rg",
+            width: Number(state.lightWidth),
+            height: Number(state.lightHeight),
+            division: Math.max(4, Math.round(Number(state.lightDivision))),
+            z: Number(state.lightZ),
+            vergence: Number(state.lightVergence),
+            ...commonTransform,
+          };
+        }
+        return {
+          type: "grid",
+          width: Number(state.lightWidth),
+          height: Number(state.lightHeight),
+          division: Math.max(4, Math.round(Number(state.lightDivision))),
+          z: Number(state.lightZ),
+          vergence: Number(state.lightVergence),
+          ...commonTransform,
+        };
+      }
+
+      function syncUrlWithState() {
+        const params = new URLSearchParams();
+        params.set("eyeModel", String(uiState.eyeModel));
+        params.set("pupilType", String(uiState.pupilType));
+        params.set("eyeS", String(uiState.eyeS));
+        params.set("eyeC", String(uiState.eyeC));
+        params.set("eyeAx", String(uiState.eyeAx));
+        params.set("eyeP", String(uiState.eyeP));
+        params.set("eyePAx", String(uiState.eyePAx));
+        params.set("eyeTiltX", String(uiState.eyeTiltX));
+        params.set("eyeTiltY", String(uiState.eyeTiltY));
+        params.set("lsType", String(uiState.lightSourceType));
+        params.set("lsWidth", String(uiState.lightWidth));
+        params.set("lsHeight", String(uiState.lightHeight));
+        params.set("lsDivision", String(uiState.lightDivision));
+        params.set("lsRadius", String(uiState.lightRadius));
+        params.set("lsAngleDivision", String(uiState.lightAngleDivision));
+        params.set("lsZ", String(uiState.lightZ));
+        params.set("lsVergence", String(uiState.lightVergence));
+        params.set("lsPosX", String(uiState.lightPosX));
+        params.set("lsPosY", String(uiState.lightPosY));
+        params.set("lsPosZ", String(uiState.lightPosZ));
+        params.set("lsTiltX", String(uiState.lightTiltX));
+        params.set("lsTiltY", String(uiState.lightTiltY));
+        params.set("specOn", String(uiState.spectacleEnabled));
+        params.set("specS", String(uiState.spectacleS));
+        params.set("specC", String(uiState.spectacleC));
+        params.set("specAx", String(uiState.spectacleAx));
+        params.set("specP", String(uiState.spectacleP));
+        params.set("specPAx", String(uiState.spectaclePAx));
+        params.set("specPosX", String(uiState.spectaclePosX));
+        params.set("specPosY", String(uiState.spectaclePosY));
+        params.set("specPosZ", String(uiState.spectaclePosZ));
+        params.set("specTiltX", String(uiState.spectacleTiltX));
+        params.set("specTiltY", String(uiState.spectacleTiltY));
+        params.set("xcylOn", String(uiState.crossCylinderEnabled));
+        params.set("xcylAx", String(uiState.crossCylinderAx));
+        const nextUrl = window.location.pathname + "?" + params.toString();
+        window.history.replaceState(null, "", nextUrl);
+      }
+      let refreshTimer = null;
+      function requestSimulationRefresh() {
+        syncUrlWithState();
+        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(function () {
+          refreshTimer = null;
+          runSimulationAndRender();
+        }, 0);
+      }
+
+      const gui = new GUI({ title: "SCAX Test Controls", width: 320 });
+      function refreshAllGuiControllers() {
+        if (typeof gui.controllersRecursive === "function") {
+          gui.controllersRecursive().forEach(function (controller) {
+            if (controller && typeof controller.updateDisplay === "function") {
+              controller.updateDisplay();
+            }
+          });
+        }
+      }
+      function applyPreset(presetValues) {
+        Object.keys(presetValues || {}).forEach(function (key) {
+          if (Object.prototype.hasOwnProperty.call(uiState, key)) {
+            uiState[key] = presetValues[key];
+          }
+        });
+        refreshAllGuiControllers();
+        requestSimulationRefresh();
+      }
+      const presetActions = {
+        // 하방 주시 시 안경 경사각/하강량과 렌즈 중심 법선 입사를 확인하기 위한 프리셋
+        applyDownGazeSpectacleTiltPreset: function () {
+          applyPreset({
+            eyeModel: "navarro",
+            pupilType: "neutral",
+            eyeS: 0.0,
+            eyeC: 0.0,
+            eyeAx: 180,
+            eyeP: 0,
+            eyePAx: 0,
+            // 하방 주시(약 12도)
+            eyeTiltX: -12,
+            eyeTiltY: 0,
+            lightSourceType: "grid",
+            lightWidth: 0.5,
+            lightHeight: 0.5,
+            lightDivision: 7,
+            lightRadius: 0.5,
+            lightAngleDivision: 8,
+            // 렌즈 기준 충분히 먼 거리에서 조사
+            lightZ: -400,
+            lightVergence: 0,
+            lightPosX: 0,
+            // 렌즈가 아래로 내려온 만큼 광원 중심도 같이 이동
+            lightPosY: -2.0,
+            lightPosZ: 0,
+            // 렌즈 정중앙 법선 방향으로 조사
+            lightTiltX: 10.0,
+            lightTiltY: 5.0,
+            spectacleEnabled: true,
+            spectacleS: 0.0,
+            spectacleC: 0.0,
+            spectacleAx: 180,
+            spectacleP: 0,
+            spectaclePAx: 0,
+            spectaclePosX: 0,
+            // 프레임 피팅 하강량(약 2 mm)
+            spectaclePosY: -2.0,
+            spectaclePosZ: SPECTACLE_VD_Z_MM,
+            // 팬토스코픽 + 페이스폼 경사
+            spectacleTiltX: 10.0,
+            spectacleTiltY: 5.0,
+            crossCylinderEnabled: false,
+            crossCylinderAx: 180,
+          });
+        },
+        alignLensAndLightToCurrentGaze: function () {
+          const gazeTiltX = Number(uiState.eyeTiltX) || 0;
+          const gazeTiltY = Number(uiState.eyeTiltY) || 0;
+          const lightDistanceMm = 200;
+          const lightZ = -lightDistanceMm;
+          const lensCenter = new THREE.Vector3(
+            Number(uiState.spectaclePosX) || 0,
+            Number(uiState.spectaclePosY) || 0,
+            Number(uiState.spectaclePosZ) || 0,
+          );
+          const gazeQuat = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(
+              THREE.MathUtils.degToRad(gazeTiltX),
+              THREE.MathUtils.degToRad(gazeTiltY),
+              0,
+              "XYZ",
+            ),
+          );
+          const gazeDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(gazeQuat).normalize();
+          const sourceWorldCenter = lensCenter.clone().addScaledVector(gazeDirection, -lightDistanceMm);
+          const mirroredSourceWorldCenter = sourceWorldCenter.clone();
+          mirroredSourceWorldCenter.y *= -1;
+          applyPreset({
+            spectacleEnabled: true,
+            // 렌즈 법선이 현재 주시선과 일치하도록 경사 맞춤
+            spectacleTiltX: gazeTiltX,
+            spectacleTiltY: gazeTiltY,
+            // xz 평면(y=0) 대칭: y 성분 반전을 위해 X tilt 부호를 반전
+            lightTiltX: -gazeTiltX,
+            lightTiltY: gazeTiltY,
+            lightVergence: 0,
+            lightZ: lightZ,
+            // world center = (lightPosX, lightPosY, lightPosZ + lightZ)
+            lightPosX: mirroredSourceWorldCenter.x,
+            lightPosY: mirroredSourceWorldCenter.y,
+            lightPosZ: mirroredSourceWorldCenter.z - lightZ,
+          });
+        },
+      };
+      const presetFolder = gui.addFolder("0) Data Presets");
+      presetFolder
+        .add(presetActions, "applyDownGazeSpectacleTiltPreset")
+        .name("Down Gaze + Lens-Normal Light");
+      presetFolder
+        .add(presetActions, "alignLensAndLightToCurrentGaze")
+        .name("Align Lens/Light To Current Gaze");
+      presetFolder.open();
+      const modelFolder = gui.addFolder("1) Model");
+      modelFolder.add(uiState, "eyeModel", ["gullstrand", "navarro"]).name("Eye Model").onFinishChange(requestSimulationRefresh);
+      modelFolder
+        .add(uiState, "pupilType", ["constricted", "neutral", "dilated", "none"])
+        .name("Pupil Type")
+        .onFinishChange(requestSimulationRefresh);
+      modelFolder.open();
+
+      const eyeFolder = gui.addFolder("2) Eye Refraction (S/C/Ax + Prism)");
+      eyeFolder.add(uiState, "eyeS", -20, 20, 0.25).name("Eye S (D)").onFinishChange(requestSimulationRefresh);
+      eyeFolder.add(uiState, "eyeC", -10, 10, 0.25).name("Eye C (D)").onFinishChange(requestSimulationRefresh);
+      eyeFolder.add(uiState, "eyeAx", 0, 180, 1).name("Eye Axis").onFinishChange(requestSimulationRefresh);
+      eyeFolder.add(uiState, "eyeP", 0, 20, 0.1).name("Eye Prism (Δ)").onChange(requestSimulationRefresh);
+      eyeFolder.add(uiState, "eyePAx", 0, 360, 1).name("Eye Prism Base Axis").onChange(requestSimulationRefresh);
+      eyeFolder.add(uiState, "eyeTiltX", -30, 30, 0.1).name("Eye Tilt X (deg)").onFinishChange(requestSimulationRefresh);
+      eyeFolder.add(uiState, "eyeTiltY", -30, 30, 0.1).name("Eye Tilt Y (deg)").onFinishChange(requestSimulationRefresh);
+
+      const lightFolder = gui.addFolder("3) Light Source");
+      lightFolder
+        .add(uiState, "lightSourceType", ["grid", "grid_rg", "radial"])
+        .name("Type")
+        .onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightWidth", 0, 20, 0.1).name("Grid Width (mm)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightHeight", 0, 20, 0.1).name("Grid Height (mm)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightRadius", 0, 20, 0.1).name("Radial Radius (mm)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightDivision", 4, 40, 1).name("Division").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightAngleDivision", 4, 64, 1).name("Angle Division").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightZ", -200, 0, 0.1).name("Source Z (mm)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightVergence", -20, 20, 0.1).name("Vergence (D)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightPosX", -40, 40, 0.1).name("Source Pos X (mm)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightPosY", -40, 40, 0.1).name("Source Pos Y (mm)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightPosZ", -40, 40, 0.1).name("Source Pos Z (mm)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightTiltX", -45, 45, 0.1).name("Source Tilt X (deg)").onFinishChange(requestSimulationRefresh);
+      lightFolder.add(uiState, "lightTiltY", -45, 45, 0.1).name("Source Tilt Y (deg)").onFinishChange(requestSimulationRefresh);
+
+      const specFolder = gui.addFolder("4) Spectacle Lens");
+      specFolder.add(uiState, "spectacleEnabled").name("Insert Spectacle").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectacleS", -20, 20, 0.25).name("Spec S (D)").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectacleC", -10, 10, 0.25).name("Spec C (D)").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectacleAx", 0, 180, 1).name("Spec Axis").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectacleP", 0, 20, 0.1).name("Spec Prism (Δ)").onChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectaclePAx", 0, 360, 1).name("Spec Prism Base Axis").onChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectaclePosX", -20, 20, 0.1).name("Spec Pos X (mm)").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectaclePosY", -20, 20, 0.1).name("Spec Pos Y (mm)").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectaclePosZ", -80, 20, 0.1).name("Spec Pos Z (mm)").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectacleTiltX", -30, 30, 0.1).name("Spec Tilt X (deg)").onFinishChange(requestSimulationRefresh);
+      specFolder.add(uiState, "spectacleTiltY", -30, 30, 0.1).name("Spec Tilt Y (deg)").onFinishChange(requestSimulationRefresh);
+
+      const xcylFolder = gui.addFolder("5) Cross Cylinder (+0.25 / −0.25 D, axis adjustable)");
+      xcylFolder.add(uiState, "crossCylinderEnabled").name("Insert Cross Cyl").onFinishChange(requestSimulationRefresh);
+      xcylFolder.add(uiState, "crossCylinderAx", 0, 180, 1).name("X-Cyl Axis (TABO °)").onFinishChange(requestSimulationRefresh);
+
+      function buildDiskMeshData(pointAt, radius, radialSegments, angularSegments) {
+        const positions = [];
+        const indices = [];
+        positions.push(pointAt(0, 0)[0], pointAt(0, 0)[1], pointAt(0, 0)[2]);
+
+        for (let ring = 1; ring <= radialSegments; ring++) {
+          const rho = (radius * ring) / radialSegments;
+          for (let seg = 0; seg < angularSegments; seg++) {
+            const theta = (2 * Math.PI * seg) / angularSegments;
+            const x = rho * Math.cos(theta);
+            const y = rho * Math.sin(theta);
+            const p = pointAt(x, y);
+            positions.push(p[0], p[1], p[2]);
+          }
+        }
+
+        for (let seg = 0; seg < angularSegments; seg++) {
+          const next = (seg + 1) % angularSegments;
+          indices.push(0, 1 + next, 1 + seg);
+        }
+
+        for (let ring = 2; ring <= radialSegments; ring++) {
+          const prevStart = 1 + (ring - 2) * angularSegments;
+          const currStart = 1 + (ring - 1) * angularSegments;
+          for (let seg = 0; seg < angularSegments; seg++) {
+            const next = (seg + 1) % angularSegments;
+            const a = prevStart + seg;
+            const b = prevStart + next;
+            const c = currStart + seg;
+            const d = currStart + next;
+            indices.push(a, b, c, b, d, c);
+          }
+        }
+
+        return {
+          positions: new Float32Array(positions),
+          indices: new Uint32Array(indices),
+        };
+      }
+
+      function getSurfaceQuaternion(surface) {
+        const tiltXDeg = Number(surface?.tilt?.x || 0);
+        const tiltYDeg = Number(surface?.tilt?.y || 0);
+        return new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(
+            THREE.MathUtils.degToRad(tiltXDeg),
+            THREE.MathUtils.degToRad(tiltYDeg),
+            0,
+            "XYZ",
+          ),
+        );
+      }
+
+      function localPointToWorld(surface, localPoint) {
+        const pos = surface?.position || { x: 0, y: 0, z: 0 };
+        return localPoint
+          .clone()
+          .applyQuaternion(getSurfaceQuaternion(surface))
+          .add(new THREE.Vector3(pos.x, pos.y, pos.z));
+      }
+
+      function estimateSurfaceRadius(surface) {
+        const type = String(surface?.type || "").toLowerCase();
+        const name = String(surface?.name || "").toLowerCase();
+
+        // Rough anatomical diameters (mm) for visualization only.
+        // cornea ~11-12mm, lens cortex ~9-10mm, lens nucleus ~6-7mm.
+        if (name.includes("retina") || type === "spherical-image") return 12.0;
+        if (name.includes("cornea")) return 5.8;
+        if (name.includes("lens_nucleus")) return 3.3;
+        if (name.includes("lens")) return 4.8;
+        if (name.includes("eye_st")) return 5.8;
+        if (type === "toric") return 4.8;
+        return 5.2;
+      }
+
+      function buildGeometryForSurface(surface, radius) {
+        const type = surface.type || "";
+        const radialSegments = 24;
+        const angularSegments = 64;
+        const safeRadius = Math.max(0, Number.isFinite(radius) ? radius : estimateSurfaceRadius(surface));
+
+        if (type === "compound") {
+          const parts = [];
+          if (surface.sphericalSurface) parts.push(surface.sphericalSurface);
+          if (surface.toricSurface) parts.push(surface.toricSurface);
+          return parts.map(function (part) {
+            return buildGeometryForSurface(part, estimateSurfaceRadius(part));
+          }).filter(Boolean);
+        }
+
+        if (type === "paraxial") {
+          return buildDiskMeshData(function (x, y) {
+            const world = localPointToWorld(surface, new THREE.Vector3(x, y, 0));
+            return [world.x, world.y, world.z];
+          }, safeRadius, radialSegments, angularSegments);
+        }
+
+        if (type === "spherical" || type === "spherical-image") {
+          const isImageSurface = type === "spherical-image";
+          const r = Number(isImageSurface ? (surface.radius ?? surface.r) : surface.r);
+          const planar = !Number.isFinite(r) || Math.abs(r) > 1e12;
+          // Retina(spherical-image)는 적도 부근까지 그리면 형태가 과도하게 꺾여 보일 수 있어
+          // 반경 대비 유효 aperture를 제한해 구면 캡으로 시각화합니다.
+          const capRadius = isImageSurface && Number.isFinite(r)
+            ? Math.min(safeRadius, Math.abs(r) * 0.8)
+            : safeRadius;
+          return buildDiskMeshData(function (x, y) {
+            const rho2 = x * x + y * y;
+            let z = 0;
+            if (!planar && Math.abs(r) * Math.abs(r) >= rho2) {
+              const root = Math.sqrt(Math.max(0, r * r - rho2));
+              z = r - Math.sign(r || 1) * root;
+            }
+            const world = localPointToWorld(surface, new THREE.Vector3(x, y, z));
+            return [world.x, world.y, world.z];
+          }, capRadius, radialSegments, angularSegments);
+        }
+
+        if (type === "aspherical") {
+          const r = Number(surface.r);
+          const conic = Number(surface.conic || 0);
+          const curvature = Math.abs(r) > 1e-12 ? (1 / r) : 0;
+          return buildDiskMeshData(function (x, y) {
+            const rho2 = x * x + y * y;
+            let sag = 0;
+            if (Math.abs(curvature) > 0) {
+              const b = 1 - (1 + conic) * curvature * curvature * rho2;
+              const sqrtB = Math.sqrt(Math.max(0, b));
+              const denom = 1 + sqrtB;
+              sag = Math.abs(denom) < 1e-12 ? 0 : (curvature * rho2) / denom;
+            }
+            const world = localPointToWorld(surface, new THREE.Vector3(x, y, sag));
+            return [world.x, world.y, world.z];
+          }, safeRadius, radialSegments, angularSegments);
+        }
+
+        if (type === "toric") {
+          const rAxis = Number(surface.r_axis);
+          const rPerp = Number(surface.r_perp);
+          const axisDeg = Number(surface.axis_deg ?? surface.tilt?.y ?? 0);
+          const axisRad = (axisDeg * Math.PI) / 180;
+          const c = Math.cos(axisRad);
+          const s = Math.sin(axisRad);
+          const cu = (!Number.isFinite(rAxis) || Math.abs(rAxis) > 1e12) ? 0 : 1 / rAxis;
+          const cv = (!Number.isFinite(rPerp) || Math.abs(rPerp) > 1e12) ? 0 : 1 / rPerp;
+
+          return buildDiskMeshData(function (x, y) {
+            const u = c * x + s * y;
+            const v = -s * x + c * y;
+            const a = cu * u * u + cv * v * v;
+            const b = 1 - cu * cu * u * u - cv * cv * v * v;
+            const sqrtB = Math.sqrt(Math.max(0, b));
+            const den = 1 + sqrtB;
+            const sag = Math.abs(den) < 1e-12 ? 0 : a / den;
+            const world = localPointToWorld(surface, new THREE.Vector3(x, y, sag));
+            return [world.x, world.y, world.z];
+          }, safeRadius, radialSegments, angularSegments);
+        }
+
+        return null;
+      }
+
+      function buildSurfacePointSampler(surface) {
+        if (!surface) return null;
+        const type = String(surface.type || "").toLowerCase();
+        const pos = surface.position || { x: 0, y: 0, z: 0 };
+
+        if (type === "paraxial") {
+          return function (x, y) {
+            return localPointToWorld(surface, new THREE.Vector3(x, y, 0));
+          };
+        }
+
+        if (type === "spherical" || type === "spherical-image") {
+          const isImageSurface = type === "spherical-image";
+          const r = Number(isImageSurface ? (surface.radius ?? surface.r) : surface.r);
+          const planar = !Number.isFinite(r) || Math.abs(r) > 1e12;
+          return function (x, y) {
+            const rho2 = x * x + y * y;
+            let z = 0;
+            if (!planar && Math.abs(r) * Math.abs(r) >= rho2) {
+              const root = Math.sqrt(Math.max(0, r * r - rho2));
+              z = r - Math.sign(r || 1) * root;
+            }
+            return localPointToWorld(surface, new THREE.Vector3(x, y, z));
+          };
+        }
+
+        if (type === "aspherical") {
+          const r = Number(surface.r);
+          const conic = Number(surface.conic || 0);
+          const curvature = Math.abs(r) > 1e-12 ? (1 / r) : 0;
+          return function (x, y) {
+            const rho2 = x * x + y * y;
+            let sag = 0;
+            if (Math.abs(curvature) > 0) {
+              const b = 1 - (1 + conic) * curvature * curvature * rho2;
+              const sqrtB = Math.sqrt(Math.max(0, b));
+              const denom = 1 + sqrtB;
+              sag = Math.abs(denom) < 1e-12 ? 0 : (curvature * rho2) / denom;
+            }
+            return localPointToWorld(surface, new THREE.Vector3(x, y, sag));
+          };
+        }
+
+        if (type === "toric") {
+          const rAxis = Number(surface.r_axis);
+          const rPerp = Number(surface.r_perp);
+          const axisDeg = Number(surface.axis_deg ?? surface.tilt?.y ?? 0);
+          const axisRad = (axisDeg * Math.PI) / 180;
+          const c = Math.cos(axisRad);
+          const s = Math.sin(axisRad);
+          const cu = (!Number.isFinite(rAxis) || Math.abs(rAxis) > 1e12) ? 0 : 1 / rAxis;
+          const cv = (!Number.isFinite(rPerp) || Math.abs(rPerp) > 1e12) ? 0 : 1 / rPerp;
+          return function (x, y) {
+            const u = c * x + s * y;
+            const v = -s * x + c * y;
+            const a = cu * u * u + cv * v * v;
+            const b = 1 - cu * cu * u * u - cv * cv * v * v;
+            const sqrtB = Math.sqrt(Math.max(0, b));
+            const den = 1 + sqrtB;
+            const sag = Math.abs(den) < 1e-12 ? 0 : a / den;
+            return localPointToWorld(surface, new THREE.Vector3(x, y, sag));
+          };
+        }
+
+        return null;
+      }
+
+      function createMeridianPolyline(surface, axisDeg, halfLength, sampleCount) {
+        const sampler = buildSurfacePointSampler(surface);
+        if (!sampler) return null;
+        const axisRad = (axisDeg * Math.PI) / 180;
+        const c = Math.cos(axisRad);
+        const s = Math.sin(axisRad);
+        const points = [];
+        const n = Math.max(8, Number(sampleCount) || 24);
+        for (let i = 0; i <= n; i++) {
+          const t = -halfLength + (2 * halfLength * i) / n;
+          const x = c * t;
+          const y = s * t;
+          points.push(sampler(x, y));
+        }
+        return points;
+      }
+
+      function drawMeridian(surface, axisDeg, halfLength, color) {
+        if (!surface) return null;
+        const points = createMeridianPolyline(surface, axisDeg, halfLength, 64);
+        if (!Array.isArray(points) || points.length < 2) return null;
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.95,
+        });
+        const line = new THREE.Line(geometry, material);
+        return line;
+      }
+
+      function applyEyeRenderRotation(object3d, eyeRotationForRender) {
+        if (!object3d) return;
+        const rxDeg = Number(eyeRotationForRender?.x_deg);
+        const ryDeg = Number(eyeRotationForRender?.y_deg);
+        // Prism vector axes (x,y) map to eye orientation as:
+        // - x component => yaw around Y axis
+        // - y component => pitch around X axis (Three.js +X pitch tilts toward -Y, so negate)
+        object3d.rotation.x = Number.isFinite(ryDeg) ? THREE.MathUtils.degToRad(-ryDeg) : 0;
+        object3d.rotation.y = Number.isFinite(rxDeg) ? THREE.MathUtils.degToRad(rxDeg) : 0;
+      }
+
+      function getRayPoints(ray) {
+        if (!ray) return [];
+        if (Array.isArray(ray.points)) return ray.points;
+        if (Array.isArray(ray._points)) return ray._points;
+        return [];
+      }
+
+
+      function toFixedOrNa(value, digits) {
+        return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "NaN";
+      }
+
+      function toExponentialOrNa(value, digits) {
+        return Number.isFinite(Number(value)) ? Number(value).toExponential(digits) : "NaN";
+      }
+
+      function formatAstigmatismMeridianArray(items) {
+        const meridians = Array.isArray(items) ? items : [];
+        if (!meridians.length) return "none";
+        return meridians
+          .map(function (m) {
+            return "(" + toFixedOrNa(m?.tabo, 2) + "°, " + toFixedOrNa(m?.d, 4) + "D)";
+          })
+          .join(", ");
+      }
+
+      function formatAstigmatismSummaryGroups(items) {
+        const groups = Array.isArray(items) ? items : [];
+        if (!groups.length) return "none";
+        return groups
+          .map(function (group, index) {
+            return "#" + (index + 1) + ": [" + formatAstigmatismMeridianArray(group) + "]";
+          })
+          .join(" | ");
+      }
+
+      /** det([[a,b],[d,e]]) */
+      function affineLinearDet(a, b, d, e) {
+        return a * e - b * d;
+      }
+
+      /** 선형 부분을 √( |det| )로 나눠 면적 스케일 제거 */
+      function normalizeAffineLinearPart(ar) {
+        const a = Number(ar.a);
+        const b = Number(ar.b);
+        const d = Number(ar.d);
+        const e = Number(ar.e);
+        const det = affineLinearDet(a, b, d, e);
+        const s = Math.sqrt(Math.abs(det));
+        if (!Number.isFinite(s) || s < 1e-14) return null;
+        return { a: a / s, b: b / s, d: d / s, e: e / s };
+      }
+
+      function frobeniusNorm22Diff(m1, m2) {
+        if (!m1 || !m2) return NaN;
+        const da = m1.a - m2.a;
+        const db = m1.b - m2.b;
+        const dd = m1.d - m2.d;
+        const de = m1.e - m2.e;
+        return Math.sqrt(da * da + db * db + dd * dd + de * de);
+      }
+
+      /** L^T L 고유값 → σ₁ ≥ σ₂, 비율 σ₁/σ₂ (안쪽 필 압축·타원성) */
+      function singularValueRatioFromAffine(ar) {
+        const a = Number(ar.a);
+        const b = Number(ar.b);
+        const d = Number(ar.d);
+        const e = Number(ar.e);
+        const s11 = a * a + d * d;
+        const s12 = a * b + d * e;
+        const s22 = b * b + e * e;
+        const trace = s11 + s22;
+        const detLtL = s11 * s22 - s12 * s12;
+        const disc = Math.max(0, trace * trace - 4 * detLtL);
+        const lamMax = (trace + Math.sqrt(disc)) / 2;
+        const lamMin = (trace - Math.sqrt(disc)) / 2;
+        const sig1 = Math.sqrt(Math.max(0, lamMax));
+        const sig2 = Math.sqrt(Math.max(0, lamMin));
+        if (sig2 < 1e-14) return Number.POSITIVE_INFINITY;
+        return sig1 / sig2;
+      }
+
+      function meanCornerDisplacementMm(affineCurr, affineRef, extent) {
+        function map(ar, x, y) {
+          return {
+            x: ar.a * x + ar.b * y + ar.c,
+            y: ar.d * x + ar.e * y + ar.f,
+          };
+        }
+        const corners = [
+          [-extent, -extent],
+          [extent, -extent],
+          [extent, extent],
+          [-extent, extent],
+        ];
+        let sum = 0;
+        for (let i = 0; i < corners.length; i += 1) {
+          const p = map(affineCurr, corners[i][0], corners[i][1]);
+          const q = map(affineRef, corners[i][0], corners[i][1]);
+          sum += Math.hypot(p.x - q.x, p.y - q.y);
+        }
+        return sum / 4;
+      }
+
+      /** 정시·무프리즘·무틸트: 동일 도수/광원/렌즈 형상에서 눈·안경 편위만 제거한 참조 시뮬용 */
+      function buildOrthophoricReferenceState(state) {
+        return Object.assign({}, state, {
+          eyeP: 0,
+          eyePAx: 0,
+          eyeTiltX: 0,
+          eyeTiltY: 0,
+          spectacleP: 0,
+          spectaclePAx: 0,
+        });
+      }
+
+      function computeAffineDistortionMetrics(affineCurr, affineRef) {
+        if (!affineCurr) return null;
+        const sigmaRatio = singularValueRatioFromAffine(affineCurr);
+        const base = {
+          sigmaRatio: sigmaRatio,
+          sigmaRatioStr: Number.isFinite(sigmaRatio) && sigmaRatio < 1e6
+            ? sigmaRatio.toFixed(4)
+            : "∞",
+          residualAvgPct: Number(affineCurr.residualAvgPct),
+          frobShape: NaN,
+          cornerMeanMm: NaN,
+          refAvailable: Boolean(affineRef),
+        };
+        if (!affineRef) return base;
+        const nCurr = normalizeAffineLinearPart(affineCurr);
+        const nRef = normalizeAffineLinearPart(affineRef);
+        base.cornerMeanMm = meanCornerDisplacementMm(affineCurr, affineRef, 6);
+        if (nCurr && nRef) {
+          base.frobShape = frobeniusNorm22Diff(nCurr, nRef);
+        }
+        return base;
+      }
+
+      function drawAffineDistortionHint(canvasCtx, plotLeft, yBase, metrics) {
+        canvasCtx.save();
+        canvasCtx.font = "10px Arial";
+        canvasCtx.textAlign = "left";
+        canvasCtx.fillStyle = "#94a3b8";
+        const lines = [];
+        if (!metrics) {
+          lines.push("왜곡 지표: —");
+        } else {
+          lines.push(
+            "σ₁/σ₂ (현재 선형): " + metrics.sigmaRatioStr +
+              "  ·  residual avg: " + toFixedOrNa(metrics.residualAvgPct, 3) + "%",
+          );
+          if (metrics.refAvailable) {
+            const frobPart = Number.isFinite(metrics.frobShape)
+              ? "‖N_curr−N_ref‖_F=" + toFixedOrNa(metrics.frobShape, 4)
+              : "‖N_curr−N_ref‖_F=n/a (특이)";
+            lines.push(
+              frobPart +
+                "  ·  코너 평균 Δ(vs 초기 정시): " + toFixedOrNa(metrics.cornerMeanMm, 4) + " mm",
+            );
+          } else {
+            lines.push("정시 참조 아핀 없음 — 위 항목만 유효");
+          }
+        }
+        for (let i = 0; i < lines.length; i += 1) {
+          canvasCtx.fillText(lines[i], plotLeft + 2, yBase + i * 12);
+        }
+        canvasCtx.restore();
+      }
+
+      function drawAffineMappedGrid(canvasCtx, affineResult, toCanvas, affineMap, gridExtent, gridStep, style) {
+        canvasCtx.strokeStyle = style.stroke;
+        canvasCtx.lineWidth = style.lineWidth;
+        canvasCtx.setLineDash(style.dash || []);
+        canvasCtx.globalAlpha = style.alpha != null ? style.alpha : 1;
+        for (let i = -3; i <= 3; i += 1) {
+          let started = false;
+          canvasCtx.beginPath();
+          for (let t = -30; t <= 30; t += 1) {
+            const s = (t / 30) * gridExtent;
+            const mapped = affineMap(affineResult, i * gridStep, s);
+            const point = toCanvas(mapped.x, mapped.y);
+            if (!started) {
+              canvasCtx.moveTo(point.x, point.y);
+              started = true;
+            } else {
+              canvasCtx.lineTo(point.x, point.y);
+            }
+          }
+          canvasCtx.stroke();
+          started = false;
+          canvasCtx.beginPath();
+          for (let t = -30; t <= 30; t += 1) {
+            const s = (t / 30) * gridExtent;
+            const mapped = affineMap(affineResult, s, i * gridStep);
+            const point = toCanvas(mapped.x, mapped.y);
+            if (!started) {
+              canvasCtx.moveTo(point.x, point.y);
+              started = true;
+            } else {
+              canvasCtx.lineTo(point.x, point.y);
+            }
+          }
+          canvasCtx.stroke();
+        }
+        canvasCtx.setLineDash([]);
+        canvasCtx.globalAlpha = 1;
+      }
+
+      function drawAffinePanel(canvasCtx, panels) {
+        const width = canvasCtx.canvas.width;
+        const height = canvasCtx.canvas.height;
+        canvasCtx.clearRect(0, 0, width, height);
+        canvasCtx.fillStyle = "#020617";
+        canvasCtx.fillRect(0, 0, width, height);
+        const sourceColor = "#f59e0b";
+        const imageColor = "#22d3ee";
+        const margin = 10;
+        const gutter = 10;
+        const panelW = Math.floor((width - margin * 2 - gutter) / 2);
+        const panelH = Math.floor((height - margin * 2 - gutter) / 2);
+        const gridExtent = 6;
+        const gridStep = gridExtent / 3;
+
+        function affineMap(ar, x, y) {
+          return {
+            x: ar.a * x + ar.b * y + ar.c,
+            y: ar.d * x + ar.e * y + ar.f,
+          };
+        }
+
+        function drawSinglePanel(panel, index) {
+          const row = Math.floor(index / 2);
+          const col = index % 2;
+          const left = margin + col * (panelW + gutter);
+          const top = margin + row * (panelH + gutter);
+          const domain = gridExtent;
+          const plotTop = top + 20;
+          const plotLeft = left + 6;
+          const plotWidth = panelW - 12;
+          const plotHeight = panelH - 38;
+          const scale = Math.min((plotWidth - 2) / (domain * 2), (plotHeight - 2) / (domain * 2));
+          const originX = plotLeft + plotWidth / 2;
+          const originY = plotTop + plotHeight / 2;
+          function toCanvas(x, y) {
+            return { x: originX + x * scale, y: originY - y * scale };
+          }
+
+          canvasCtx.strokeStyle = "#334155";
+          canvasCtx.lineWidth = 1;
+          canvasCtx.strokeRect(left, top, panelW, panelH);
+          canvasCtx.fillStyle = "#cbd5e1";
+          canvasCtx.font = "11px Arial";
+          canvasCtx.textAlign = "left";
+          canvasCtx.fillText(String(panel?.title || "panel"), left + 6, top + 14);
+
+          canvasCtx.strokeStyle = "#1e293b";
+          const axisX0 = toCanvas(-domain, 0);
+          const axisX1 = toCanvas(domain, 0);
+          const axisY0 = toCanvas(0, -domain);
+          const axisY1 = toCanvas(0, domain);
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(axisX0.x, axisX0.y);
+          canvasCtx.lineTo(axisX1.x, axisX1.y);
+          canvasCtx.moveTo(axisY0.x, axisY0.y);
+          canvasCtx.lineTo(axisY1.x, axisY1.y);
+          canvasCtx.stroke();
+
+          canvasCtx.strokeStyle = "#334155";
+          for (let i = -3; i <= 3; i += 1) {
+            const x0 = toCanvas(i * gridStep, -gridExtent);
+            const x1 = toCanvas(i * gridStep, gridExtent);
+            const y0 = toCanvas(-gridExtent, i * gridStep);
+            const y1 = toCanvas(gridExtent, i * gridStep);
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(x0.x, x0.y);
+            canvasCtx.lineTo(x1.x, x1.y);
+            canvasCtx.stroke();
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(y0.x, y0.y);
+            canvasCtx.lineTo(y1.x, y1.y);
+            canvasCtx.stroke();
+          }
+
+          canvasCtx.strokeStyle = sourceColor;
+          canvasCtx.lineWidth = 1.1;
+          for (let i = -3; i <= 3; i += 1) {
+            const x0 = toCanvas(i * gridStep, -gridExtent);
+            const x1 = toCanvas(i * gridStep, gridExtent);
+            const y0 = toCanvas(-gridExtent, i * gridStep);
+            const y1 = toCanvas(gridExtent, i * gridStep);
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(x0.x, x0.y);
+            canvasCtx.lineTo(x1.x, x1.y);
+            canvasCtx.stroke();
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(y0.x, y0.y);
+            canvasCtx.lineTo(y1.x, y1.y);
+            canvasCtx.stroke();
+          }
+
+          if (panel?.affine) {
+            canvasCtx.save();
+            canvasCtx.beginPath();
+            canvasCtx.rect(plotLeft, plotTop, plotWidth, plotHeight);
+            canvasCtx.clip();
+            drawAffineMappedGrid(
+              canvasCtx,
+              panel.affine,
+              toCanvas,
+              affineMap,
+              gridExtent,
+              gridStep,
+              { stroke: imageColor, lineWidth: 1.4, dash: [], alpha: 1 },
+            );
+            canvasCtx.restore();
+          } else if (!panel?.showSourceOnly) {
+            canvasCtx.fillStyle = "#f87171";
+            canvasCtx.font = "10px Arial";
+            canvasCtx.fillText("affine unavailable", left + 8, panelH + top - 8);
+          }
+
+          canvasCtx.fillStyle = "#94a3b8";
+          canvasCtx.font = "10px Arial";
+          if (panel?.showSourceOnly) {
+            canvasCtx.fillText("광원 기준 격자", left + 8, panelH + top - 8);
+          } else {
+            const pairCount = Number(panel?.affine?.count);
+            canvasCtx.fillText("pairs: " + (Number.isFinite(pairCount) ? pairCount : 0), left + 8, panelH + top - 8);
+          }
+        }
+
+        (Array.isArray(panels) ? panels : []).slice(0, 4).forEach(drawSinglePanel);
+      }
+
+
+      function flattenTraceSurfaces(compoundAwareSurfaces) {
+        const list = [];
+        (compoundAwareSurfaces || []).forEach(function (surface, index) {
+          if (!surface) return;
+          const name = String(surface?.name || ("surface_" + index));
+          if (String(surface?.type || "").toLowerCase() === "compound") {
+            if (surface.toricSurface) list.push({ surface: surface.toricSurface, name: name + "_toric" });
+            if (surface.sphericalSurface) list.push({ surface: surface.sphericalSurface, name: name + "_spherical" });
+          } else {
+            list.push({ surface, name });
+          }
+        });
+        return list;
+      }
+
+      function classifyFailure(surface, ray) {
+        if (!surface || !ray) return "unknown";
+        if (typeof surface.incident !== "function") return "unknown";
+        const hitPoint = surface.incident(ray);
+        if (!hitPoint) return "incident";
+
+        const type = String(surface.type || "").toLowerCase();
+        const nBefore = Number(surface.n_before);
+        const nAfter = Number(surface.n_after);
+        if (!Number.isFinite(nBefore) || !Number.isFinite(nAfter) || nAfter === 0) return "unknown";
+
+        // Spherical surface: compute Snell condition directly to identify TIR.
+        if (type === "spherical" && Number.isFinite(Number(surface.r))) {
+          const r = Number(surface.r);
+          const pos = surface.position || { x: 0, y: 0, z: 0 };
+          const incidentDir = ray.getDirection().clone().normalize();
+          let normal;
+          if (!Number.isFinite(r) || Math.abs(r) > 1e12) {
+            normal = new THREE.Vector3(0, 0, 1);
+          } else {
+            const center = new THREE.Vector3(pos.x, pos.y, pos.z + r);
+            normal = r < 0
+              ? hitPoint.clone().sub(center).normalize()
+              : center.clone().sub(hitPoint).normalize();
+          }
+          if (normal.dot(incidentDir) < 0) normal.multiplyScalar(-1);
+          const cos1 = Math.max(-1, Math.min(1, normal.dot(incidentDir)));
+          const sin1Sq = Math.max(0, 1 - cos1 * cos1);
+          const sin2 = (nBefore / nAfter) * Math.sqrt(sin1Sq);
+          if (sin2 > 1 + 1e-10) return "tir";
+          return "unknown";
+        }
+
+        return "unknown";
+      }
+
+      function toFinitePoint(pointLike) {
+        if (!pointLike) return null;
+        const x = Number(pointLike.x);
+        const y = Number(pointLike.y);
+        const z = Number(pointLike.z);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+        return new THREE.Vector3(x, y, z);
+      }
+
+      function createMarker(position, color, size) {
+        const markerGeometry = new THREE.SphereGeometry(size, 16, 12);
+        const markerMaterial = new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 0.2,
+          metalness: 0.05,
+          roughness: 0.4,
+        });
+        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+        marker.position.copy(position);
+        addSimulationObject(marker);
+      }
+      function createOrientedFocalLine(profile, color, yOffset) {
+        const at = toFinitePoint(profile?.at);
+        const angleDeg = Number(profile?.angleMajorDeg);
+        const majorDirection = toFinitePoint(profile?.majorDirection);
+        if (!at || !Number.isFinite(angleDeg)) return false;
+        const yShift = Number.isFinite(Number(yOffset)) ? Number(yOffset) : 0;
+        if (Math.abs(yShift) > 1e-12) at.y += yShift;
+        const length = 12.0;
+        const angleRad = (angleDeg * Math.PI) / 180;
+        const dir = (majorDirection && majorDirection.lengthSq() > 1e-12)
+          ? majorDirection.clone().normalize()
+          : new THREE.Vector3(Math.cos(angleRad), Math.sin(angleRad), 0);
+        const p0 = at.clone().addScaledVector(dir, -length / 2);
+        const p1 = at.clone().addScaledVector(dir, length / 2);
+        const geometry = new THREE.BufferGeometry().setFromPoints([p0, p1]);
+        const material = new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.98,
+        });
+        const line = new THREE.Line(geometry, material);
+        addSimulationObject(line);
+        return true;
+      }
+
+      function drawPrismArrow(origin, vec2, color, scale, minLength) {
+        const vx = Number(vec2?.x);
+        const vy = Number(vec2?.y);
+        if (!Number.isFinite(vx) || !Number.isFinite(vy)) return false;
+        const lengthMm = Math.max(minLength, Math.hypot(vx, vy) * scale);
+        if (lengthMm <= 1e-9) return false;
+        const direction = new THREE.Vector3(vx, vy, 0);
+        if (direction.lengthSq() < 1e-12) return false;
+        direction.normalize();
+        const arrow = new THREE.ArrowHelper(direction, origin, lengthMm, color, 1.6, 0.9);
+        addSimulationObject(arrow);
+        return true;
+      }
+
+      function runSimulationAndRender() {
+        clearSimulationObjects();
+        const zeroLensState = Object.assign({}, uiState, {
+          spectacleEnabled: false,
+          crossCylinderEnabled: false,
+          spectacleP: 0,
+          spectaclePAx: 0,
+        });
+        const orthoRefState = buildOrthophoricReferenceState(zeroLensState);
+        const eyePrismState = Object.assign({}, zeroLensState);
+        const lensConfigs = buildLensConfigs(uiState);
+        const hasLens = Array.isArray(lensConfigs) && lensConfigs.length > 0;
+        const engine = new ScaxEngine.SCAXEngine({
+          eyeModel: uiState.eyeModel,
+          pupil_type: uiState.pupilType,
+          eye: {
+            s: uiState.eyeS,
+            c: uiState.eyeC,
+            ax: uiState.eyeAx,
+            p: uiState.eyeP,
+            p_ax: uiState.eyePAx,
+            tilt: {
+              x: uiState.eyeTiltX,
+              y: uiState.eyeTiltY,
+            },
+          },
+          lens: lensConfigs,
+          light_source: buildLightSourceConfig(uiState),
+        });
+        const eyeRotationForRender = engine.getEyeRotation();
+
+        const surfaces = []
+          .concat(engine.lens || [])
+          .concat(engine.surfaces || []);
+        const eyeSurfaceSet = new Set((engine.surfaces || []).filter(Boolean));
+        const eyeRenderGroup = new THREE.Group();
+        eyeRenderGroup.name = "eye-render-group";
+        eyeRenderGroup.position.set(0, 0, EYE_ROTATION_PIVOT_FROM_CORNEA_MM);
+        applyEyeRenderRotation(eyeRenderGroup, eyeRotationForRender);
+        const eyeGeometryGroup = new THREE.Group();
+        eyeGeometryGroup.name = "eye-geometry-group";
+        eyeGeometryGroup.position.set(0, 0, -EYE_ROTATION_PIVOT_FROM_CORNEA_MM);
+        eyeRenderGroup.add(eyeGeometryGroup);
+        addSimulationObject(eyeRenderGroup);
+        const simulationResult = engine.simulate();
+        const astigmatismInfo = simulationResult?.info?.astigmatism || null;
+        const prismInfo = simulationResult?.info?.prism
+          ? {
+              eye: simulationResult.info.prism.eye
+                ? {
+                    x: simulationResult.info.prism.eye.p_x,
+                    y: simulationResult.info.prism.eye.p_y,
+                    magnitude: simulationResult.info.prism.eye.magnitude,
+                    angle_deg: simulationResult.info.prism.eye.prism_angle,
+                  }
+                : null,
+              lens: simulationResult.info.prism.lens
+                ? {
+                    x: simulationResult.info.prism.lens.p_x,
+                    y: simulationResult.info.prism.lens.p_y,
+                    magnitude: simulationResult.info.prism.lens.magnitude,
+                    angle_deg: simulationResult.info.prism.lens.prism_angle,
+                  }
+                : null,
+              combined: simulationResult.info.prism.combined
+                ? {
+                    x: simulationResult.info.prism.combined.p_x,
+                    y: simulationResult.info.prism.combined.p_y,
+                    magnitude: simulationResult.info.prism.combined.magnitude,
+                    angle_deg: simulationResult.info.prism.combined.prism_angle,
+                  }
+                : null,
+            }
+          : (simulationResult?.light_deviation
+            ? {
+                eye: simulationResult.light_deviation.eye_prism_effect || null,
+                lens: simulationResult.light_deviation.lens_prism_total || null,
+                combined: simulationResult.light_deviation.net_prism || null,
+              }
+            : null);
+        const tracedRays = Array.isArray(simulationResult?.traced_rays)
+          ? simulationResult.traced_rays
+          : [];
+        const affinePairCount = tracedRays
+          .map(function (ray) {
+            const points = getRayPoints(ray);
+            if (!Array.isArray(points) || points.length < 2) return null;
+            const src = points[0];
+            const dst = points[points.length - 1];
+            if (!src || !dst) return null;
+            const sx = Number(src.x);
+            const sy = Number(src.y);
+            const tx = Number(dst.x);
+            const ty = Number(dst.y);
+            if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(tx) || !Number.isFinite(ty)) return null;
+            return { sx, sy, tx, ty };
+          })
+          .filter(Boolean)
+          .length;
+        const affineResult = engine.getAffineAnalysis();
+        const orthoRefEngine = new ScaxEngine.SCAXEngine({
+          eyeModel: orthoRefState.eyeModel,
+          pupil_type: orthoRefState.pupilType,
+          eye: {
+            s: orthoRefState.eyeS,
+            c: orthoRefState.eyeC,
+            ax: orthoRefState.eyeAx,
+            p: orthoRefState.eyeP,
+            p_ax: orthoRefState.eyePAx,
+            tilt: { x: orthoRefState.eyeTiltX, y: orthoRefState.eyeTiltY },
+          },
+          lens: buildLensConfigs(orthoRefState),
+          light_source: buildLightSourceConfig(orthoRefState),
+        });
+        orthoRefEngine.simulate();
+        const affineResultOrtho = orthoRefEngine.getAffineAnalysis();
+        const eyePrismEngine = new ScaxEngine.SCAXEngine({
+          eyeModel: eyePrismState.eyeModel,
+          pupil_type: eyePrismState.pupilType,
+          eye: {
+            s: eyePrismState.eyeS,
+            c: eyePrismState.eyeC,
+            ax: eyePrismState.eyeAx,
+            p: eyePrismState.eyeP,
+            p_ax: eyePrismState.eyePAx,
+            tilt: { x: eyePrismState.eyeTiltX, y: eyePrismState.eyeTiltY },
+          },
+          lens: buildLensConfigs(eyePrismState),
+          light_source: buildLightSourceConfig(eyePrismState),
+        });
+        eyePrismEngine.simulate();
+        const affineResultEyeOnly = eyePrismEngine.getAffineAnalysis();
+        const affineDistortionMetrics = computeAffineDistortionMetrics(affineResult, affineResultOrtho);
+        const sturmResult = engine.sturmCalculation(tracedRays);
+        const sturmInfo = Array.isArray(sturmResult?.sturm_info) ? sturmResult.sturm_info : [];
+        const sourceRays = engine?.light_source?.emitRays ? engine.light_source.emitRays() : [];
+
+        let meshCount = 0;
+        let vertexCount = 0;
+        let triangleCount = 0;
+        let meridianLineCount = 0;
+        const compoundSummaries = [];
+
+        surfaces.forEach(function (surface, index) {
+          if (!surface) return;
+          if (String(surface.type || "").toLowerCase() === "compound") {
+            const toric = surface.toricSurface || null;
+            const spherical = surface.sphericalSurface || null;
+            const toricZ = Number(toric?.position?.z);
+            const sphericalZ = Number(spherical?.position?.z);
+            const thicknessMm = Number.isFinite(toricZ) && Number.isFinite(sphericalZ)
+              ? (sphericalZ - toricZ)
+              : Number.NaN;
+            compoundSummaries.push({
+              name: String(surface.name || "compound"),
+              toricZ,
+              sphericalZ,
+              thicknessMm,
+            });
+          }
+
+          const maybeBuffers = buildGeometryForSurface(surface, estimateSurfaceRadius(surface));
+          const buffers = Array.isArray(maybeBuffers) ? maybeBuffers : [maybeBuffers];
+
+          buffers.forEach(function (buffer, offset) {
+            if (!buffer || !buffer.positions || !buffer.indices) return;
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute("position", new THREE.BufferAttribute(buffer.positions, 3));
+            geometry.setIndex(new THREE.BufferAttribute(buffer.indices, 1));
+            geometry.computeVertexNormals();
+
+            const material = new THREE.MeshStandardMaterial({
+              color: new THREE.Color().setHSL(((index + offset * 0.3) * 0.17) % 1, 0.65, 0.55),
+              metalness: 0.05,
+              roughness: 0.7,
+              transparent: true,
+              opacity: 0.45,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            if (eyeSurfaceSet.has(surface)) {
+              addSimulationObject(mesh, eyeGeometryGroup);
+            } else {
+              addSimulationObject(mesh);
+            }
+
+            meshCount += 1;
+            vertexCount += buffer.positions.length / 3;
+            triangleCount += buffer.indices.length / 3;
+          });
+        });
+
+        const meridianTargets = [];
+        (engine.lens || []).forEach(function (surface) {
+          if (surface) meridianTargets.push(surface);
+        });
+        (engine.surfaces || []).forEach(function (surface) {
+          if (String(surface?.name || "").toLowerCase() === "eye_st") meridianTargets.push(surface);
+        });
+
+        meridianTargets.forEach(function (surface) {
+          if (!surface) return;
+          const isEyeSurface = eyeSurfaceSet.has(surface);
+          const parts = String(surface.type || "").toLowerCase() === "compound"
+            ? [surface.sphericalSurface].filter(Boolean)
+            : [surface];
+          parts.forEach(function (part) {
+            const axisDeg = Number(part?.ax ?? surface?.ax ?? 0);
+            const halfLength = Math.max(2.5, estimateSurfaceRadius(part || surface) * 0.9);
+            const major = drawMeridian(part, axisDeg, halfLength, 0x10b981);
+            if (major) {
+              addSimulationObject(major, isEyeSurface ? eyeGeometryGroup : null);
+              meridianLineCount += 1;
+            }
+            const minor = drawMeridian(part, axisDeg + 90, halfLength, 0xf59e0b);
+            if (minor) {
+              addSimulationObject(minor, isEyeSurface ? eyeGeometryGroup : null);
+              meridianLineCount += 1;
+            }
+          });
+        });
+
+        let rayCount = 0;
+        let raySegmentCount = 0;
+        let sourcePointCount = 0;
+        let sourceDirectionArrowCount = 0;
+
+        // Visualize light source independently from tracing success/failure.
+        const sourceTiltQuat = new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(
+            THREE.MathUtils.degToRad(Number(uiState.lightTiltX || 0)),
+            THREE.MathUtils.degToRad(Number(uiState.lightTiltY || 0)),
+            0,
+            "XYZ",
+          ),
+        );
+        const sourcePivot = new THREE.Vector3(0, 0, Number(uiState.lightZ || 0));
+        const sourceTranslation = new THREE.Vector3(
+          Number(uiState.lightPosX || 0),
+          Number(uiState.lightPosY || 0),
+          Number(uiState.lightPosZ || 0),
+        );
+        const transformedSourceSamples = sourceRays
+          .map(function (ray) {
+            const points = getRayPoints(ray);
+            const p0 = points.length ? points[0].clone() : null;
+            const d0 = ray?.getDirection ? ray.getDirection().clone() : null;
+            if (!p0 || !d0) return null;
+            const worldPoint = p0.sub(sourcePivot).applyQuaternion(sourceTiltQuat).add(sourcePivot).add(sourceTranslation);
+            const worldDir = d0.applyQuaternion(sourceTiltQuat).normalize();
+            if (!Number.isFinite(worldPoint.x) || !Number.isFinite(worldPoint.y) || !Number.isFinite(worldPoint.z)) return null;
+            if (!Number.isFinite(worldDir.x) || !Number.isFinite(worldDir.y) || !Number.isFinite(worldDir.z)) return null;
+            return { point: worldPoint, dir: worldDir };
+          })
+          .filter(Boolean);
+        const sourcePoints = transformedSourceSamples.map(function (s) { return s.point; });
+        if (sourcePoints.length > 0) {
+          const sourcePointGeometry = new THREE.BufferGeometry().setFromPoints(sourcePoints);
+          const sourcePointMaterial = new THREE.PointsMaterial({
+            color: 0x22d3ee,
+            size: 0.7,
+            sizeAttenuation: true,
+            transparent: true,
+            opacity: 0.95,
+          });
+          const sourcePointCloud = new THREE.Points(sourcePointGeometry, sourcePointMaterial);
+          addSimulationObject(sourcePointCloud);
+          sourcePointCount = sourcePoints.length;
+
+          // Draw source center marker + mean incident direction.
+          const sourceCenter = sourcePoints.reduce(function (acc, p) { return acc.add(p); }, new THREE.Vector3())
+            .multiplyScalar(1 / sourcePoints.length);
+          createMarker(sourceCenter, 0x06b6d4, 0.65);
+          const meanSourceDir = transformedSourceSamples.reduce(function (acc, sample) {
+            if (sample?.dir && sample.dir.lengthSq() > 1e-12) acc.add(sample.dir);
+            return acc;
+          }, new THREE.Vector3());
+          if (meanSourceDir.lengthSq() > 1e-12) {
+            const dir = meanSourceDir.normalize();
+            const arrow = new THREE.ArrowHelper(dir, sourceCenter, 8.0, 0x22d3ee, 1.6, 0.9);
+            addSimulationObject(arrow);
+            sourceDirectionArrowCount = 1;
+          }
+        }
+
+        tracedRays.forEach(function (ray) {
+          const points = getRayPoints(ray).filter(function (p) {
+            return p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
+          });
+          if (points.length < 2) return;
+
+          const positions = [];
+          points.forEach(function (p) {
+            positions.push(p.x, p.y, p.z);
+          });
+
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+          const color = Number.isFinite(ray?.displayColor) ? ray.displayColor : 0xfbbf24;
+          const material = new THREE.LineBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.9,
+          });
+
+          const line = new THREE.Line(geometry, material);
+          addSimulationObject(line);
+
+          rayCount += 1;
+          raySegmentCount += Math.max(0, points.length - 1);
+        });
+
+        const traceSurfaceList = flattenTraceSurfaces(
+          []
+            .concat(engine.lens || [])
+            .concat(engine.surfaces || [])
+            .sort(function (a, b) {
+              return Number(a?.position?.z || 0) - Number(b?.position?.z || 0);
+            }),
+        );
+        const failureBySurface = {};
+        traceSurfaceList.forEach(function (item) {
+          failureBySurface[item.name] = 0;
+        });
+        const failureReasonBySurface = {};
+        traceSurfaceList.forEach(function (item) {
+          failureReasonBySurface[item.name] = { incident: 0, tir: 0, unknown: 0 };
+        });
+        let debugSuccessCount = 0;
+        let debugFailCount = 0;
+        const lens2FrontIncidentStats = {
+          count: 0,
+          originMinusFrontZMin: Number.POSITIVE_INFINITY,
+          originMinusFrontZMax: Number.NEGATIVE_INFINITY,
+          originBehindOrOnFrontCount: 0,
+          originInFrontOfSurfaceCount: 0,
+          directionZMin: Number.POSITIVE_INFINITY,
+          directionZMax: Number.NEGATIVE_INFINITY,
+          directionZPositiveCount: 0,
+          directionZNegativeCount: 0,
+          directionZNearZeroCount: 0,
+          localF0Min: Number.POSITIVE_INFINITY,
+          localF0Max: Number.NEGATIVE_INFINITY,
+          localF0NonFiniteCount: 0,
+          discriminantMin: Number.POSITIVE_INFINITY,
+          discriminantMax: Number.NEGATIVE_INFINITY,
+          discriminantNegativeCount: 0,
+          noPositiveRootCount: 0,
+        };
+
+        sourceRays.forEach(function (srcRay) {
+          let activeRay = srcRay.clone();
+          let failed = false;
+          for (let i = 0; i < traceSurfaceList.length; i++) {
+            const item = traceSurfaceList[i];
+            const nextRay = item.surface.refract(activeRay);
+            if (!nextRay) {
+              failureBySurface[item.name] += 1;
+              const reason = classifyFailure(item.surface, activeRay);
+              if (reason === "incident") failureReasonBySurface[item.name].incident += 1;
+              else if (reason === "tir") failureReasonBySurface[item.name].tir += 1;
+              else failureReasonBySurface[item.name].unknown += 1;
+
+              if (item.name === "lens_st_2_spherical" && reason === "incident") {
+                const origin = activeRay?.endPoint ? activeRay.endPoint() : null;
+                const direction = activeRay?.getDirection ? activeRay.getDirection() : null;
+                const surfaceZ = Number(item?.surface?.position?.z);
+                const originZ = Number(origin?.z);
+                const directionZ = Number(direction?.z);
+                if (Number.isFinite(surfaceZ) && Number.isFinite(originZ)) {
+                  const dz = originZ - surfaceZ;
+                  lens2FrontIncidentStats.count += 1;
+                  lens2FrontIncidentStats.originMinusFrontZMin = Math.min(lens2FrontIncidentStats.originMinusFrontZMin, dz);
+                  lens2FrontIncidentStats.originMinusFrontZMax = Math.max(lens2FrontIncidentStats.originMinusFrontZMax, dz);
+                  if (dz > 0) lens2FrontIncidentStats.originInFrontOfSurfaceCount += 1;
+                  else lens2FrontIncidentStats.originBehindOrOnFrontCount += 1;
+                }
+                if (Number.isFinite(directionZ)) {
+                  lens2FrontIncidentStats.directionZMin = Math.min(lens2FrontIncidentStats.directionZMin, directionZ);
+                  lens2FrontIncidentStats.directionZMax = Math.max(lens2FrontIncidentStats.directionZMax, directionZ);
+                  if (directionZ > 1e-9) lens2FrontIncidentStats.directionZPositiveCount += 1;
+                  else if (directionZ < -1e-9) lens2FrontIncidentStats.directionZNegativeCount += 1;
+                  else lens2FrontIncidentStats.directionZNearZeroCount += 1;
+                }
+              }
+              debugFailCount += 1;
+              failed = true;
+              break;
+            }
+            activeRay = nextRay;
+          }
+          if (!failed) debugSuccessCount += 1;
+        });
+
+        const traceSurfaceOrderText = traceSurfaceList.length
+          ? traceSurfaceList.map(function (item) { return item.name; }).join(" -> ")
+          : "none";
+        const failureEntries = Object.entries(failureBySurface)
+          .sort(function (a, b) { return b[1] - a[1]; });
+        const failureText = failureEntries.length
+          ? failureEntries.map(function (item) { return item[0] + ":" + item[1]; }).join(", ")
+          : "none";
+        const failureReasonText = failureEntries.length
+          ? failureEntries.map(function (item) {
+            const name = item[0];
+            const reason = failureReasonBySurface[name] || { incident: 0, tir: 0, unknown: 0 };
+            return name + "(incident=" + reason.incident + ",tir=" + reason.tir + ",unknown=" + reason.unknown + ")";
+          }).join(", ")
+          : "none";
+        const lens2FrontZRelationText = lens2FrontIncidentStats.count > 0
+          ? (
+            "count=" + lens2FrontIncidentStats.count +
+            ", dz(origin-front) min/max=" +
+            lens2FrontIncidentStats.originMinusFrontZMin.toFixed(6) + "/" +
+            lens2FrontIncidentStats.originMinusFrontZMax.toFixed(6) +
+            ", behindOrOn=" + lens2FrontIncidentStats.originBehindOrOnFrontCount +
+            ", inFront=" + lens2FrontIncidentStats.originInFrontOfSurfaceCount +
+            ", dir.z min/max=" +
+            lens2FrontIncidentStats.directionZMin.toFixed(6) + "/" +
+            lens2FrontIncidentStats.directionZMax.toFixed(6)
+          )
+          : "none";
+
+        const VISUAL_Y_OFFSET = 0.0;
+        let sturmIntervalCount = 0;
+        let sturmApproxMarkerCount = 0;
+        let sturmFallbackPointCount = 0;
+        let sturmFocalLineCount = 0;
+        sturmInfo.forEach(function (item) {
+          const color = Number.isFinite(item?.color) ? item.color : 0x60a5fa;
+          const anteriorPoint = toFinitePoint(item?.anterior?.profile?.at);
+          const posteriorPoint = toFinitePoint(item?.posterior?.profile?.at);
+          const approxCenterPoint = toFinitePoint(item?.approx_center);
+          const hasAstigmatism = Boolean(item?.has_astigmatism);
+
+          if (anteriorPoint && posteriorPoint) {
+            const elevatedAnteriorPoint = anteriorPoint.clone();
+            const elevatedPosteriorPoint = posteriorPoint.clone();
+            elevatedAnteriorPoint.y += VISUAL_Y_OFFSET;
+            elevatedPosteriorPoint.y += VISUAL_Y_OFFSET;
+            const intervalGeometry = new THREE.BufferGeometry().setFromPoints([elevatedAnteriorPoint, elevatedPosteriorPoint]);
+            const intervalMaterial = new THREE.LineBasicMaterial({
+              color,
+              transparent: true,
+              opacity: 0.95,
+            });
+            const intervalLine = new THREE.Line(intervalGeometry, intervalMaterial);
+            addSimulationObject(intervalLine);
+            sturmIntervalCount += 1;
+          }
+
+          if (hasAstigmatism && createOrientedFocalLine(item?.anterior?.profile, color, VISUAL_Y_OFFSET)) sturmFocalLineCount += 1;
+          if (hasAstigmatism && createOrientedFocalLine(item?.posterior?.profile, color, VISUAL_Y_OFFSET)) sturmFocalLineCount += 1;
+
+          if (approxCenterPoint) {
+            const elevatedApproxCenterPoint = approxCenterPoint.clone();
+            elevatedApproxCenterPoint.y += VISUAL_Y_OFFSET;
+            createMarker(elevatedApproxCenterPoint, color, 0.7);
+            sturmApproxMarkerCount += 1;
+          }
+        });
+
+        // Prism visualization arrows near the origin plane for quick visual feedback.
+        const prismArrowOrigin = new THREE.Vector3(0, 0, -2.0);
+        if (prismInfo?.eye) {
+          drawPrismArrow(prismArrowOrigin, prismInfo.eye, 0x38bdf8, 4.0, 1.2);
+        }
+        if (prismInfo?.lens) {
+          drawPrismArrow(prismArrowOrigin.clone().add(new THREE.Vector3(0, 0, -1.2)), prismInfo.lens, 0xf59e0b, 4.0, 1.2);
+        }
+        if (prismInfo?.combined) {
+          drawPrismArrow(prismArrowOrigin.clone().add(new THREE.Vector3(0, 0, -2.4)), prismInfo.combined, 0xef4444, 4.0, 1.2);
+        }
+
+        const compoundText = compoundSummaries.length
+          ? compoundSummaries
+            .map(function (item) {
+              const toricZ = Number.isFinite(item.toricZ) ? item.toricZ.toFixed(4) : "NaN";
+              const sphericalZ = Number.isFinite(item.sphericalZ) ? item.sphericalZ.toFixed(4) : "NaN";
+              const thicknessMm = Number.isFinite(item.thicknessMm) ? item.thicknessMm.toFixed(4) : "NaN";
+              return item.name + " | toricZ=" + toricZ + " | sphericalZ=" + sphericalZ + " | thickness=" + thicknessMm + "mm";
+            })
+            .join("\n")
+          : "none";
+
+        hud.textContent =
+        "SCAX UMD Mesh Render Test\n" +
+        "global: window.ScaxEngine.SCAXEngine\n" +
+        "config: model=" + uiState.eyeModel +
+        ", pupil=" + uiState.pupilType +
+        ", eye=(" + uiState.eyeS + "," + uiState.eyeC + "," + uiState.eyeAx + ")" +
+        ", eyePrismBase=(" + uiState.eyeP + "Δ@" + uiState.eyePAx + "°)" +
+        ", eyeTilt=(" + uiState.eyeTiltX + "°, " + uiState.eyeTiltY + "°)" +
+        ", light=" + uiState.lightSourceType +
+        ", lightPos=(" + uiState.lightPosX + "," + uiState.lightPosY + "," + uiState.lightPosZ + ")" +
+        ", lightTilt=(" + uiState.lightTiltX + "°, " + uiState.lightTiltY + "°)" +
+        ", spec=" + (uiState.spectacleEnabled ? "on" : "off") +
+        (uiState.spectacleEnabled ? " (base " + uiState.spectacleP + "Δ@" + uiState.spectaclePAx + "°)" : "") +
+        ", x-cyl=" + (uiState.crossCylinderEnabled
+          ? "on (+0.25/−0.25 D, ax=" + uiState.crossCylinderAx + "°)"
+          : "off") + "\n" +
+        "compound(toricZ->sphericalZ, +z) check:\n" + compoundText + "\n" +
+        "rays(simulated/rendered): " + tracedRays.length + " / " + rayCount + "\n" +
+        "source points(rendered): " + sourcePointCount + "\n" +
+        "source direction arrows: " + sourceDirectionArrowCount + "\n" +
+        "ray segments: " + raySegmentCount + "\n" +
+        "sturm intervals: " + sturmIntervalCount + "\n" +
+        "sturm focal lines: " + sturmFocalLineCount + "\n" +
+        "sturm approx markers: " + sturmApproxMarkerCount + "\n" +
+        "sturm fallback points: " + sturmFallbackPointCount + "\n" +
+        "surface meridians: " + meridianLineCount + "\n" +
+        "trace debug success/fail: " + debugSuccessCount + " / " + debugFailCount + "\n" +
+        "trace debug order: " + traceSurfaceOrderText + "\n" +
+        "trace debug fail@surface: " + failureText + "\n" +
+        "trace debug fail reason: " + failureReasonText + "\n" +
+        "lens_st_2_spherical z relation: " + lens2FrontZRelationText + "\n" +
+        "eye rotation(for render): x=" + toFixedOrNa(eyeRotationForRender?.x_deg, 3) +
+        "°, y=" + toFixedOrNa(eyeRotationForRender?.y_deg, 3) +
+        "°, mag=" + toFixedOrNa(eyeRotationForRender?.magnitude_deg, 3) + "°\n" +
+        "eye prism effect: x=" + toFixedOrNa(prismInfo?.eye?.x, 4) +
+        ", y=" + toFixedOrNa(prismInfo?.eye?.y, 4) +
+        ", mag=" + toFixedOrNa(prismInfo?.eye?.magnitude, 4) +
+        ", ang=" + toFixedOrNa(prismInfo?.eye?.angle_deg, 2) + "°\n" +
+        "lens prism total: x=" + toFixedOrNa(prismInfo?.lens?.x, 4) +
+        ", y=" + toFixedOrNa(prismInfo?.lens?.y, 4) +
+        ", mag=" + toFixedOrNa(prismInfo?.lens?.magnitude, 4) +
+        ", ang=" + toFixedOrNa(prismInfo?.lens?.angle_deg, 2) + "°\n" +
+        "combined prism: x=" + toFixedOrNa(prismInfo?.combined?.x, 4) +
+        ", y=" + toFixedOrNa(prismInfo?.combined?.y, 4) +
+        ", mag=" + toFixedOrNa(prismInfo?.combined?.magnitude, 4) +
+        ", ang=" + toFixedOrNa(prismInfo?.combined?.angle_deg, 2) + "°\n" +
+        "astig eye: " + formatAstigmatismSummaryGroups(astigmatismInfo?.eye) + "\n" +
+        "astig combined: " + formatAstigmatismSummaryGroups(astigmatismInfo?.combined) + "\n" +
+        "meshes: " + meshCount + "\n" +
+        "vertices: " + vertexCount + "\n" +
+        "triangles: " + triangleCount + "\n" +
+        "status: geometry + rays + sturm rendered";
+
+        if (!affineResult) {
+          affineMeta.textContent =
+            "status: unavailable\n" +
+            "pairs: " + affinePairCount + " (need >= 4)";
+        } else {
+          const dist = affineDistortionMetrics;
+          const distBlock = dist
+            ? (
+                "왜곡 (vs 세션 최초 정시 아핀, 고정):\n" +
+                "  σ₁/σ₂ (현재 선형): " + dist.sigmaRatioStr +
+                "  ·  residual avg: " + toFixedOrNa(dist.residualAvgPct, 4) + "%\n" +
+                (
+                  dist.refAvailable
+                    ? (
+                        "  ‖N_curr−N_ref‖_F: " + (Number.isFinite(dist.frobShape)
+                          ? toFixedOrNa(dist.frobShape, 6)
+                          : "n/a") +
+                        "  ·  코너 평균 Δ: " + toFixedOrNa(dist.cornerMeanMm, 6) + " mm\n"
+                      )
+                    : "  (정시 참조 아핀 없음)\n"
+                )
+              )
+            : "";
+          affineMeta.textContent =
+            "current pairs: " + affineResult.count + "\n" +
+            distBlock +
+            "[x'; y'] = [[a b c], [d e f]] [x y 1]^T (현재)\n" +
+            "a=" + toFixedOrNa(affineResult.a, 6) +
+            ", b=" + toFixedOrNa(affineResult.b, 6) +
+            ", c=" + toFixedOrNa(affineResult.c, 6) + "\n" +
+            "d=" + toFixedOrNa(affineResult.d, 6) +
+            ", e=" + toFixedOrNa(affineResult.e, 6) +
+            ", f=" + toFixedOrNa(affineResult.f, 6) + "\n" +
+            "residual avg/max (%): " +
+            toFixedOrNa(affineResult.residualAvgPct, 4) + " / " +
+            toFixedOrNa(affineResult.residualMaxPct, 4) + "\n" +
+            "max residual (mm): " + toExponentialOrNa(
+              Math.max(0, ...(Array.isArray(affineResult.residuals)
+                ? affineResult.residuals.map(function (r) { return Number(r?.magnitude || 0); })
+                : [0])),
+              3,
+            );
+        }
+        drawAffinePanel(affineCtx, [
+          { title: "1) 광원", showSourceOnly: true },
+          { title: "2) 정시(eye only)", affine: affineResultOrtho },
+          { title: "3) 눈 굴절(프리즘 반영)", affine: affineResultEyeOnly },
+          { title: "4) 안경 + 눈", affine: affineResult },
+        ]);
+        if (typeof eyePrismEngine?.dispose === "function") eyePrismEngine.dispose();
+        if (typeof orthoRefEngine?.dispose === "function") orthoRefEngine.dispose();
+        if (typeof engine?.dispose === "function") engine.dispose();
+      }
+      runSimulationAndRender();
+
+      function render() {
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(render);
+      }
+      render();
+
+      window.addEventListener("resize", function () {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    })();
+  </script>
+</body>
+</html>
