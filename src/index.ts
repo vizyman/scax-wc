@@ -429,6 +429,7 @@ function sortMeridiansByPowerStrength<T extends { d?: number }>(items: T[]): T[]
 
 /** Principal astigmatic meridians are always 90° apart; snap the partner angle if data drifts. */
 const MERIDIAN_ORTHOGONAL_TOLERANCE_DEG = 2;
+const MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG = Number.EPSILON;
 
 function enforcePerpendicularMeridianPair(weakAxisDeg: number, strongAxisDeg: number): number {
   const weak = normalizeAxis180(weakAxisDeg);
@@ -1662,22 +1663,29 @@ export class ScaxWc extends LitElement {
       addCorneaMeridian(activeMajor);
       addCorneaMeridian(activeMinor);
 
-      const eyeMajor = this.createMeridianDashedLine(
-        corneaAstigSurface,
-        eyeStrongAxis,
-        halfLength,
-        colorTheme.meridian.eye.strong,
-        CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
-      );
-      const eyeMinor = this.createMeridianDashedLine(
-        corneaAstigSurface,
-        eyeWeakAxis,
-        halfLength,
-        colorTheme.meridian.eye.weak,
-        CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
-      );
-      addCorneaMeridian(eyeMajor);
-      addCorneaMeridian(eyeMinor);
+      const eyeCombinedAxisMatch =
+        angleDistance180(eyeWeakAxis, combinedWeakAxis) <= MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG &&
+        angleDistance180(eyeStrongAxis, combinedStrongAxis) <=
+          MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG;
+      // If eye/combined astigmatism axes are effectively identical, render only combined lines.
+      if (!eyeCombinedAxisMatch) {
+        const eyeMajor = this.createMeridianDashedLine(
+          corneaAstigSurface,
+          eyeStrongAxis,
+          halfLength,
+          colorTheme.meridian.eye.strong,
+          CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
+        const eyeMinor = this.createMeridianDashedLine(
+          corneaAstigSurface,
+          eyeWeakAxis,
+          halfLength,
+          colorTheme.meridian.eye.weak,
+          CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
+        addCorneaMeridian(eyeMajor);
+        addCorneaMeridian(eyeMinor);
+      }
     }
     this.meridianObjects = meridianObjects;
     for (const line of this.meridianObjects) {
