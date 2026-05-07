@@ -1893,9 +1893,7 @@ export class ScaxWc extends LitElement {
     const combinedMeridians = combinedAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [combinedWeak, combinedStrong] = [...combinedMeridians].sort(
-      (a, b) => Number(a.d) - Number(b.d),
-    );
+    const [combinedWeak, combinedStrong] = sortMeridiansByPowerStrength(combinedMeridians);
     const weakAxisDeg = Number.isFinite(Number(combinedWeak?.tabo))
       ? engineMeridianDeg(Number(combinedWeak?.tabo))
       : 90;
@@ -1906,8 +1904,21 @@ export class ScaxWc extends LitElement {
       combinedMeridians.length >= 2
         ? enforcePerpendicularMeridianPair(weakAxisDeg, strongAxisFromTabo)
         : strongAxisFromTabo;
-    const strongFocalAxis = normalizeAxis180(strongAxisDeg + 90);
-    const weakFocalAxis = normalizeAxis180(weakAxisDeg + 90);
+    const combinedWeakPower = Number(combinedWeak?.d);
+    const combinedStrongPower = Number(combinedStrong?.d);
+    const isHyperopicAstigmatism =
+      Number.isFinite(combinedWeakPower) &&
+      Number.isFinite(combinedStrongPower) &&
+      combinedWeakPower > 0 &&
+      combinedStrongPower > 0;
+    // Hyperopic interval-of-Sturm orientation can appear mirrored in profile major-axis output.
+    // Swap focal-axis color anchors so meridian and focal-line colors stay consistent.
+    const strongFocalAxis = normalizeAxis180(
+      (isHyperopicAstigmatism ? weakAxisDeg : strongAxisDeg) + 90,
+    );
+    const weakFocalAxis = normalizeAxis180(
+      (isHyperopicAstigmatism ? strongAxisDeg : weakAxisDeg) + 90,
+    );
 
     for (const item of sturmInfo) {
       const approxCenterPoint = toFinitePoint(item?.approx_center);
