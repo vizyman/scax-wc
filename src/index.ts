@@ -176,6 +176,7 @@ type SurfaceLike = {
   name?: string;
   position?: { x?: number; y?: number; z?: number };
   tilt?: { x?: number; y?: number };
+  axis_deg?: number;
   s?: number;
   c?: number;
   ax?: number;
@@ -382,6 +383,19 @@ function readSurfacePosition(surface: SurfaceLike): THREE.Vector3 {
   );
 }
 
+function getSurfaceQuaternion(surface: SurfaceLike): THREE.Quaternion {
+  const tiltXDeg = Number(surface.tilt?.x ?? 0);
+  const tiltYDeg = Number(surface.tilt?.y ?? 0);
+  const tiltX = Number.isFinite(tiltXDeg) ? THREE.MathUtils.degToRad(tiltXDeg) : 0;
+  const tiltY = Number.isFinite(tiltYDeg) ? THREE.MathUtils.degToRad(tiltYDeg) : 0;
+  return new THREE.Quaternion().setFromEuler(new THREE.Euler(tiltX, tiltY, 0, 'XYZ'));
+}
+
+function localPointToWorld(surface: SurfaceLike, localPoint: THREE.Vector3): THREE.Vector3 {
+  const position = readSurfacePosition(surface);
+  return localPoint.applyQuaternion(getSurfaceQuaternion(surface)).add(position);
+}
+
 function getRayPoints(ray: unknown): THREE.Vector3[] {
   const casted = ray as RayLike | null;
   if (Array.isArray(casted?.points)) return casted.points;
@@ -582,7 +596,6 @@ function estimateSurfaceRadius(surface: SurfaceLike): number {
 
 function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBufferData[] {
   const type = String(surface.type ?? '').toLowerCase();
-  const pos = readSurfacePosition(surface);
   const radialSegments = 24;
   const angularSegments = 64;
   const safeRadius = Math.max(
@@ -608,7 +621,10 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
   if (type === 'paraxial') {
     return [
       buildDiskMeshData(
-        (x, y) => [pos.x + x, pos.y + y, pos.z],
+        (x, y) => {
+          const point = localPointToWorld(surface, new THREE.Vector3(x, y, 0));
+          return [point.x, point.y, point.z];
+        },
         safeRadius,
         radialSegments,
         angularSegments,
@@ -628,12 +644,13 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
       buildDiskMeshData(
         (x, y) => {
           const rho2 = x * x + y * y;
-          let z = pos.z;
+          let z = 0;
           if (!planar && Math.abs(r) * Math.abs(r) >= rho2) {
             const root = Math.sqrt(Math.max(0, r * r - rho2));
-            z = pos.z + r - Math.sign(r || 1) * root;
+            z = r - Math.sign(r || 1) * root;
           }
-          return [pos.x + x, pos.y + y, z];
+          const point = localPointToWorld(surface, new THREE.Vector3(x, y, z));
+          return [point.x, point.y, point.z];
         },
         capRadius,
         radialSegments,
@@ -657,7 +674,8 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
             const denom = 1 + sqrtB;
             sag = Math.abs(denom) < 1e-12 ? 0 : (curvature * rho2) / denom;
           }
-          return [pos.x + x, pos.y + y, pos.z + sag];
+          const point = localPointToWorld(surface, new THREE.Vector3(x, y, sag));
+          return [point.x, point.y, point.z];
         },
         safeRadius,
         radialSegments,
@@ -669,7 +687,7 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
   if (type === 'toric') {
     const rAxis = Number(surface.r_axis);
     const rPerp = Number(surface.r_perp);
-    const axisDeg = Number(surface.tilt?.y ?? 0);
+    const axisDeg = Number(surface.axis_deg ?? surface.tilt?.y ?? 0);
     const axisRad = (axisDeg * Math.PI) / 180;
     const c = Math.cos(axisRad);
     const s = Math.sin(axisRad);
@@ -686,7 +704,8 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
           const sqrtB = Math.sqrt(Math.max(0, b));
           const den = 1 + sqrtB;
           const sag = Math.abs(den) < 1e-12 ? 0 : a / den;
-          return [pos.x + x, pos.y + y, pos.z + sag];
+          const point = localPointToWorld(surface, new THREE.Vector3(x, y, sag));
+          return [point.x, point.y, point.z];
         },
         safeRadius,
         radialSegments,
@@ -697,7 +716,10 @@ function buildGeometryForSurface(surface: SurfaceLike, radius?: number): MeshBuf
 
   return [
     buildDiskMeshData(
-      (x, y) => [pos.x + x, pos.y + y, pos.z],
+      (x, y) => {
+        const point = localPointToWorld(surface, new THREE.Vector3(x, y, 0));
+        return [point.x, point.y, point.z];
+      },
       safeRadius,
       radialSegments,
       angularSegments,
@@ -709,10 +731,9 @@ function buildSurfacePointSampler(
   surface: SurfaceLike,
 ): ((x: number, y: number) => THREE.Vector3) | null {
   const type = String(surface.type ?? '').toLowerCase();
-  const pos = readSurfacePosition(surface);
 
   if (type === 'paraxial') {
-    return (x, y) => new THREE.Vector3(pos.x + x, pos.y + y, pos.z);
+    return (x, y) => localPointToWorld(surface, new THREE.Vector3(x, y, 0));
   }
 
   if (type === 'spherical' || type === 'spherical-image') {
@@ -722,12 +743,12 @@ function buildSurfacePointSampler(
     const planar = !Number.isFinite(r) || Math.abs(r) > 1e12;
     return (x, y) => {
       const rho2 = x * x + y * y;
-      let z = pos.z;
+      let z = 0;
       if (!planar && Math.abs(r) * Math.abs(r) >= rho2) {
         const root = Math.sqrt(Math.max(0, r * r - rho2));
-        z = pos.z + r - Math.sign(r || 1) * root;
+        z = r - Math.sign(r || 1) * root;
       }
-      return new THREE.Vector3(pos.x + x, pos.y + y, z);
+      return localPointToWorld(surface, new THREE.Vector3(x, y, z));
     };
   }
 
@@ -744,14 +765,14 @@ function buildSurfacePointSampler(
         const denom = 1 + sqrtB;
         sag = Math.abs(denom) < 1e-12 ? 0 : (curvature * rho2) / denom;
       }
-      return new THREE.Vector3(pos.x + x, pos.y + y, pos.z + sag);
+      return localPointToWorld(surface, new THREE.Vector3(x, y, sag));
     };
   }
 
   if (type === 'toric') {
     const rAxis = Number(surface.r_axis);
     const rPerp = Number(surface.r_perp);
-    const axisDeg = Number(surface.tilt?.y ?? 0);
+    const axisDeg = Number(surface.axis_deg ?? surface.tilt?.y ?? 0);
     const axisRad = (axisDeg * Math.PI) / 180;
     const c = Math.cos(axisRad);
     const s = Math.sin(axisRad);
@@ -765,7 +786,7 @@ function buildSurfacePointSampler(
       const sqrtB = Math.sqrt(Math.max(0, b));
       const den = 1 + sqrtB;
       const sag = Math.abs(den) < 1e-12 ? 0 : a / den;
-      return new THREE.Vector3(pos.x + x, pos.y + y, pos.z + sag);
+      return localPointToWorld(surface, new THREE.Vector3(x, y, sag));
     };
   }
 

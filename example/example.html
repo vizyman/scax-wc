@@ -147,10 +147,14 @@
           lensC: -1,
           lensAx: 180,
           lensZ: VD,
+          lensTiltX: 0,
+          lensTiltY: 0,
           crossCylinderEnabled: true,
           crossCylinderC: 0.5,
           crossCylinderAx: 90,
           crossCylinderZ: VD - 2,
+          crossCylinderTiltX: 0,
+          crossCylinderTiltY: 0,
           lightType: 'grid_rg',
           lightDivision: 5,
           lightVergence: 0,
@@ -184,7 +188,7 @@
               c: uiState.lensC,
               ax: uiState.lensAx,
               position: { x: 0, y: 0, z: uiState.lensZ },
-              tilt: { x: 0, y: 0 },
+              tilt: { x: uiState.lensTiltX, y: uiState.lensTiltY },
               diameter: 12,
             });
           }
@@ -195,7 +199,7 @@
               c: uiState.crossCylinderC,
               ax: uiState.crossCylinderAx,
               position: { x: 0, y: 0, z: uiState.crossCylinderZ },
-              tilt: { x: 0, y: 0 },
+              tilt: { x: uiState.crossCylinderTiltX, y: uiState.crossCylinderTiltY },
               diameter: 12,
             });
           }
@@ -299,10 +303,14 @@
             lensC: -1,
             lensAx: 180,
             lensZ: VD,
+            lensTiltX: 0,
+            lensTiltY: 0,
             crossCylinderEnabled: true,
             crossCylinderC: 0.5,
             crossCylinderAx: 90,
             crossCylinderZ: VD - 2,
+            crossCylinderTiltX: 0,
+            crossCylinderTiltY: 0,
             lightType: 'grid_rg',
             lightDivision: 5,
             lightVergence: 0,
@@ -357,6 +365,8 @@
         lensFolder.add(uiState, 'lensC', -6, 6, 0.25).name('Lens C').onChange(applyConfig);
         lensFolder.add(uiState, 'lensAx', 0, 180, 1).name('Lens Axis').onChange(applyConfig);
         lensFolder.add(uiState, 'lensZ', -30, -5, 0.5).name('Lens Z').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensTiltX', -30, 30, 0.5).name('Lens Tilt X').onChange(applyConfig);
+        lensFolder.add(uiState, 'lensTiltY', -30, 30, 0.5).name('Lens Tilt Y').onChange(applyConfig);
 
         const crossFolder = gui.addFolder('Cross Cylinder');
         crossFolder.add(uiState, 'crossCylinderEnabled').name('Enable XCyl').onChange(applyConfig);
@@ -368,6 +378,14 @@
         crossFolder
           .add(uiState, 'crossCylinderZ', -30, -5, 0.5)
           .name('XCyl Z')
+          .onChange(applyConfig);
+        crossFolder
+          .add(uiState, 'crossCylinderTiltX', -30, 30, 0.5)
+          .name('XCyl Tilt X')
+          .onChange(applyConfig);
+        crossFolder
+          .add(uiState, 'crossCylinderTiltY', -30, 30, 0.5)
+          .name('XCyl Tilt Y')
           .onChange(applyConfig);
 
         const lightFolder = gui.addFolder('Light Source');
