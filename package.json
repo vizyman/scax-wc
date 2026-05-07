@@ -53,6 +53,6 @@
     "vite": "^5.4.10"
   },
   "dependencies": {
-    "scax-engine": "^0.1.2"
+    "scax-engine": "^1.0.0"
   }
 }
