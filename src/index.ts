@@ -44,7 +44,6 @@ type CameraRenderOptions = {
   enableZoom?: boolean;
   enablePan?: boolean;
   enableRotate?: boolean;
-  autoFit?: boolean;
 };
 
 type CameraPose = {
@@ -135,7 +134,6 @@ export function defaultCameraOptions(): CameraRenderOptions {
     enableZoom: true,
     enablePan: true,
     enableRotate: true,
-    autoFit: false,
   };
 }
 
@@ -167,7 +165,6 @@ export function mergeCameraOptions(
     enableZoom: partial.enableZoom ?? base.enableZoom,
     enablePan: partial.enablePan ?? base.enablePan,
     enableRotate: partial.enableRotate ?? base.enableRotate,
-    autoFit: partial.autoFit ?? base.autoFit,
   };
 }
 
@@ -1692,7 +1689,7 @@ export class ScaxWc extends LitElement {
       this.scene.add(line);
     }
 
-    if ((this.getEffectiveCameraOptions().autoFit ?? false) && !this.hasInitialCameraFit) {
+    if (!this.hasInitialCameraFit) {
       this.fitCameraToObjects(this.getCameraFitObjects());
       this.hasInitialCameraFit = true;
     }
