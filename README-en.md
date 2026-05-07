@@ -91,7 +91,6 @@ if (el) {
 
   const simulateResult = el.getSimulateResult();
   const sturmResult = el.getSturmResult();
-  const affineResult = el.getAffineResult();
 }
 ```
 
@@ -114,12 +113,17 @@ if (el) {
   el.enablePan = true;
   el.enableRotate = false;
 
-  el.setCameraPose({
-    position: { x: 100, y: 90, z: -70 },
-    target: { x: 0, y: 0, z: 0 },
-  });
+  const cameraState = el.getCameraState();
+  localStorage.setItem('scax-camera-state', JSON.stringify(cameraState));
+
+  const raw = localStorage.getItem('scax-camera-state');
+  if (raw) {
+    el.setCameraState(JSON.parse(raw));
+  }
 }
 ```
+
+`getCameraState` / `setCameraState` includes `projection`, `position`, `target`, and `zoom` so both `perspective` and `orthogonal` views can be restored.
 
 ## `<scax-wc>` API
 
@@ -206,14 +210,15 @@ Key fields:
 
 - Returns the latest Sturm calculation result.
 
-#### `getAffineResult(): { a, b, c, d, e, f, count, residualAvgPct?, residualMaxPct?, residuals? } | null`
+#### `getCameraState(): { projection: 'perspective' | 'orthogonal', position: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }, zoom: number }`
 
-- Returns affine distortion estimation values calculated from ray tracing results.
+- Returns a serializable snapshot of the current camera state.
 
-#### `setCameraPose(pose: { position?: { x?: number; y?: number; z?: number }, target?: { x?: number; y?: number; z?: number } }): void`
+#### `setCameraState(state: { projection?: 'perspective' | 'orthogonal', position?: { x?: number; y?: number; z?: number }, target?: { x?: number; y?: number; z?: number }, zoom?: number }): void`
 
-- Updates camera position and look-at target at runtime.
-- Any omitted axis values are kept from the current camera pose.
+- Restores camera state at runtime.
+- Applies `projection`, `position`, `target`, and `zoom` to restore both `perspective` and `orthogonal` views.
+- Omitted fields keep their current values.
 
 ### Events
 

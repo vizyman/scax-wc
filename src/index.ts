@@ -212,19 +212,6 @@ type RayLike = {
   endPoint?: () => THREE.Vector3;
 };
 
-type AffineResultLike = {
-  a: number;
-  b: number;
-  c: number;
-  d: number;
-  e: number;
-  f: number;
-  count: number;
-  residualAvgPct?: number;
-  residualMaxPct?: number;
-  residuals?: Array<{ magnitude?: number }>;
-};
-
 type ScaxColorValue = THREE.ColorRepresentation;
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends Record<string, unknown> ? DeepPartial<T[K]> : T[K];
@@ -1135,7 +1122,6 @@ export class ScaxWc extends LitElement {
   private hasInitialCameraFit = false;
   private lastSimulationResult: unknown = null;
   private lastSturmResult: unknown = null;
-  private lastAffineResult: AffineResultLike | null = null;
 
   render() {
     return html` <div id="canvas-root"></div> `;
@@ -1289,7 +1275,6 @@ export class ScaxWc extends LitElement {
     )
       ? ((simulationResult as SimulateResult).info.astigmatism.combined?.[0] ?? [])
       : [];
-    this.lastAffineResult = this.calculateAffineResult();
     // traced ray의 첫 점은 엔진의 광원 pose(position/tilt)가 반영된 실제 발광 위치입니다.
     const sourceRays = tracedRays;
     return {
@@ -1330,10 +1315,6 @@ export class ScaxWc extends LitElement {
 
   public getSturmResult<T = unknown>(): T | null {
     return (this.lastSturmResult as T | null) ?? null;
-  }
-
-  public getAffineResult(): AffineResultLike | null {
-    return this.lastAffineResult;
   }
 
   public setCameraState(state: CameraStateInput): void {
@@ -1717,17 +1698,6 @@ export class ScaxWc extends LitElement {
       ...this.sturmObjects,
       ...this.meridianObjects,
     ];
-  }
-
-  private calculateAffineResult(): AffineResultLike | null {
-    if (!this.engine) return null;
-    return (
-      (
-        this.engine as unknown as {
-          getAffineAnalysis?: () => AffineResultLike | null;
-        }
-      ).getAffineAnalysis?.() ?? null
-    );
   }
 
   private createMeridianLine(

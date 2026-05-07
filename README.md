@@ -89,7 +89,6 @@ if (el) {
 
   const simulateResult = el.getSimulateResult();
   const sturmResult = el.getSturmResult();
-  const affineResult = el.getAffineResult();
 }
 ```
 
@@ -222,11 +221,6 @@ if (el) {
 #### `getSturmResult<T = unknown>(): T | null`
 
 - 최신 Sturm 계산 결과를 반환합니다.
-
-#### `getAffineResult(): { a, b, c, d, e, f, count, residualAvgPct?, residualMaxPct?, residuals? } | null`
-
-- 광선 추적 결과로 계산된 아핀 왜곡 추정값을 반환합니다.
-- Returns affine distortion estimation from ray-tracing results.
 
 #### `getCameraState(): { projection: 'perspective' | 'orthogonal', position: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }, zoom: number }`
 
