@@ -1904,21 +1904,6 @@ export class ScaxWc extends LitElement {
       combinedMeridians.length >= 2
         ? enforcePerpendicularMeridianPair(weakAxisDeg, strongAxisFromTabo)
         : strongAxisFromTabo;
-    const combinedWeakPower = Number(combinedWeak?.d);
-    const combinedStrongPower = Number(combinedStrong?.d);
-    const isHyperopicAstigmatism =
-      Number.isFinite(combinedWeakPower) &&
-      Number.isFinite(combinedStrongPower) &&
-      combinedWeakPower > 0 &&
-      combinedStrongPower > 0;
-    // Hyperopic interval-of-Sturm orientation can appear mirrored in profile major-axis output.
-    // Swap focal-axis color anchors so meridian and focal-line colors stay consistent.
-    const strongFocalAxis = normalizeAxis180(
-      (isHyperopicAstigmatism ? weakAxisDeg : strongAxisDeg) + 90,
-    );
-    const weakFocalAxis = normalizeAxis180(
-      (isHyperopicAstigmatism ? strongAxisDeg : weakAxisDeg) + 90,
-    );
 
     for (const item of sturmInfo) {
       const approxCenterPoint = toFinitePoint(item?.approx_center);
@@ -1943,14 +1928,17 @@ export class ScaxWc extends LitElement {
         const { center, angleDeg } = drawableProfiles[profileIndex];
         if (!center || !Number.isFinite(angleDeg)) continue;
         if (!item.has_astigmatism) continue;
-        const dStrong = angleDistance180(angleDeg, strongFocalAxis);
-        const dWeak = angleDistance180(angleDeg, weakFocalAxis);
+        // Focal line uses combined principal meridians: whichever meridian is closer to
+        // perpendicular to the drawn profile gets that meridian's strong/weak color.
+        const distToWeakMeridian = angleDistance180(angleDeg, weakAxisDeg);
+        const distToStrongMeridian = angleDistance180(angleDeg, strongAxisDeg);
+        const perpGapWeak = Math.abs(90 - distToWeakMeridian);
+        const perpGapStrong = Math.abs(90 - distToStrongMeridian);
         let color =
-          dStrong <= dWeak
-            ? colorTheme.meridian.combined.strong
-            : colorTheme.meridian.combined.weak;
-        // If focal axis matching is ambiguous, keep stronger power on nearer line.
-        if (Math.abs(dStrong - dWeak) < 1e-6 && drawableProfiles.length >= 2) {
+          perpGapWeak < perpGapStrong
+            ? colorTheme.meridian.combined.weak
+            : colorTheme.meridian.combined.strong;
+        if (Math.abs(perpGapWeak - perpGapStrong) < 1e-6 && drawableProfiles.length >= 2) {
           const nearestIndex = drawableProfiles[0].center.z <= drawableProfiles[1].center.z ? 0 : 1;
           color =
             profileIndex === nearestIndex
