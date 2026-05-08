@@ -1662,8 +1662,7 @@ export class ScaxWc extends LitElement {
 
       const eyeCombinedAxisMatch =
         angleDistance180(eyeWeakAxis, combinedWeakAxis) <= MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG &&
-        angleDistance180(eyeStrongAxis, combinedStrongAxis) <=
-          MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG;
+        angleDistance180(eyeStrongAxis, combinedStrongAxis) <= MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG;
       // If eye/combined astigmatism axes are effectively identical, render only combined lines.
       if (!eyeCombinedAxisMatch) {
         const eyeMajor = this.createMeridianDashedLine(
@@ -1949,8 +1948,8 @@ export class ScaxWc extends LitElement {
       }
 
       if (approxCenterPoint) {
-        const markerRadius = 0.7;
-        const markerGeometry = new THREE.CircleGeometry(markerRadius, 32);
+        const markerRadius = 0.5;
+        const markerGeometry = new THREE.SphereGeometry(markerRadius, 24, 18);
         const markerMaterial = new THREE.MeshStandardMaterial({
           color: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
           emissive: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
