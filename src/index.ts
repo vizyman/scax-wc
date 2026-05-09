@@ -7,7 +7,10 @@ import {
   type AstigmatismSummaryItem,
   type SCAXEngineProps,
   type SimulateResult,
+  type SimulationResultInfo,
 } from 'scax-engine';
+
+export type { SimulateResult, SimulationResultInfo } from 'scax-engine';
 
 const TAG = '[scax-wc]';
 
@@ -18,9 +21,6 @@ type LensRenderConfig = NonNullable<SCAXEngineProps['lens']>[number] & {
 
 type ScaxRenderConfig = Omit<SCAXEngineProps, 'lens'> & {
   lens?: LensRenderConfig[];
-  render?: {
-    pupil?: boolean;
-  };
 };
 
 type CameraProjection = 'perspective' | 'orthogonal';
@@ -91,9 +91,6 @@ export function defaultScaxConfig(): ScaxRenderConfig {
       vergence: 0,
     },
     pupil_type: 'neutral',
-    render: {
-      pupil: false,
-    },
   };
 }
 /** 얕은 병합: 최상위만 덮어쓰고, eye는 필드 단위 병합 */
@@ -110,10 +107,6 @@ export function mergeScaxConfig(
     light_source: partial.light_source ?? base.light_source,
     pupil_type: partial.pupil_type ?? base.pupil_type,
     eyeModel: partial.eyeModel ?? base.eyeModel,
-    render: {
-      ...base.render,
-      ...partial.render,
-    },
   };
 }
 export function parseConfigAttribute(raw: string | null): ScaxRenderConfig {
@@ -1272,7 +1265,7 @@ export class ScaxWc extends LitElement {
     combinedAstigmatism: AstigmatismSummaryItem;
   } | null {
     if (!this.engine) return null;
-    const simulationResult = this.engine.simulate();
+    const simulationResult: SimulateResult = this.engine.simulate();
     this.lastSimulationResult = simulationResult;
     const tracedRays = Array.isArray(simulationResult?.traced_rays)
       ? simulationResult.traced_rays
@@ -1282,20 +1275,16 @@ export class ScaxWc extends LitElement {
     const sturmInfo = Array.isArray((sturmResult as { sturm_info?: unknown[] } | null)?.sturm_info)
       ? ((sturmResult as { sturm_info?: unknown[] }).sturm_info as SturmInfoLike[])
       : [];
-    const lensAstigmatism = Array.isArray(
-      (simulationResult as SimulateResult | null)?.info?.astigmatism?.lens,
-    )
-      ? ((simulationResult as SimulateResult).info.astigmatism.lens ?? [])
+    const astigmatism: SimulationResultInfo['astigmatism'] | undefined =
+      simulationResult?.info?.astigmatism;
+    const lensAstigmatism: AstigmatismSummaryItem[] = Array.isArray(astigmatism?.lens)
+      ? (astigmatism?.lens ?? [])
       : [];
-    const eyeAstigmatism = Array.isArray(
-      (simulationResult as SimulateResult | null)?.info?.astigmatism?.eye?.[0],
-    )
-      ? ((simulationResult as SimulateResult).info.astigmatism.eye?.[0] ?? [])
+    const eyeAstigmatism: AstigmatismSummaryItem = Array.isArray(astigmatism?.eye)
+      ? (astigmatism?.eye ?? [])
       : [];
-    const combinedAstigmatism = Array.isArray(
-      (simulationResult as SimulateResult | null)?.info?.astigmatism?.combined?.[0],
-    )
-      ? ((simulationResult as SimulateResult).info.astigmatism.combined?.[0] ?? [])
+    const combinedAstigmatism: AstigmatismSummaryItem = Array.isArray(astigmatism?.combined)
+      ? (astigmatism?.combined ?? [])
       : [];
     // traced ray의 첫 점은 엔진의 광원 pose(position/tilt)가 반영된 실제 발광 위치입니다.
     const sourceRays = tracedRays;
@@ -1392,20 +1381,12 @@ export class ScaxWc extends LitElement {
     const state = this.engine as unknown as EngineStateLike;
     const lensSurfaces = Array.isArray(state.lens) ? state.lens : [];
     const eyeSurfaces = Array.isArray(state.surfaces) ? state.surfaces : [];
-    const surfacePassesPupilFilter = (surface: SurfaceLike) => {
-      const renderPupil = Boolean(this.config?.render?.pupil);
-      const lowerType = String(surface?.type ?? '').toLowerCase();
-      const lowerName = String(surface?.name ?? '').toLowerCase();
-      const isPupilSurface = lowerName === 'pupil_stop' || lowerType === 'aperture_stop';
-      if (isPupilSurface) return renderPupil;
-      return true;
-    };
-    const lensOrdered = [...lensSurfaces]
-      .filter(surfacePassesPupilFilter)
-      .sort((a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z);
-    const eyeOrdered = [...eyeSurfaces]
-      .filter(surfacePassesPupilFilter)
-      .sort((a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z);
+    const lensOrdered = [...lensSurfaces].sort(
+      (a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z,
+    );
+    const eyeOrdered = [...eyeSurfaces].sort(
+      (a, b) => readSurfacePosition(a).z - readSurfacePosition(b).z,
+    );
     const corneaSurface = eyeSurfaces.find(
       (surface) => String(surface?.name ?? '').toLowerCase() === 'eye_st',
     );

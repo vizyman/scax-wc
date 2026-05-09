@@ -102,9 +102,6 @@
           //   vergence: 0,
           // },
           pupil_type: 'neutral',
-          render: {
-            pupil: false,
-          },
         };
         demo.color = {
           scene: { background: '#0f172a' },
@@ -158,7 +155,6 @@
           lightType: 'grid_rg',
           lightDivision: 5,
           lightVergence: 0,
-          renderPupil: false,
           sceneBackground: '#0f172a',
           apertureStopColor: '#000000',
           corneaColor: '#f8fafc',
@@ -227,9 +223,6 @@
               vergence: uiState.lightVergence,
             },
             pupil_type: 'neutral',
-            render: {
-              pupil: uiState.renderPupil,
-            },
           };
           demo.color = {
             scene: { background: uiState.sceneBackground },
@@ -314,7 +307,6 @@
             lightType: 'grid_rg',
             lightDivision: 5,
             lightVergence: 0,
-            renderPupil: false,
             sceneBackground: '#0f172a',
             apertureStopColor: '#000000',
             corneaColor: '#f8fafc',
@@ -357,7 +349,6 @@
         eyeFolder.add(uiState, 'eyeAx', 0, 180, 1).name('Axis').onChange(applyConfig);
         eyeFolder.add(uiState, 'eyeP', 0, 20, 0.1).name('Prism (Δ)').onChange(applyConfig);
         eyeFolder.add(uiState, 'eyePAx', 0, 360, 1).name('Prism Base Axis').onChange(applyConfig);
-        eyeFolder.add(uiState, 'renderPupil').name('Render Pupil').onChange(applyConfig);
 
         const lensFolder = gui.addFolder('Lens');
         lensFolder.add(uiState, 'lensEnabled').name('Enable Lens').onChange(applyConfig);

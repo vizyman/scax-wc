@@ -36,8 +36,7 @@ import 'scax-wc';
     "eye":{"s":-2,"c":-0.5,"ax":180},
     "lens":[{"s":1.0,"c":-1.0,"ax":90,"diameter":6.0,"type":"lens"}],
     "light_source":{"type":"grid","width":10,"height":10,"division":4,"z":-10,"vergence":0},
-    "pupil_type":"neutral",
-    "render":{"pupil":true}
+    "pupil_type":"neutral"
   }'
   color='{
     "scene":{"background":"#020617"},
@@ -61,7 +60,6 @@ if (el) {
     lens: [{ s: 1.0, c: -1.0, ax: 90, diameter: 6.0, type: 'cross-cylinder' }],
     light_source: { type: 'grid', width: 10, height: 10, division: 4, z: -10, vergence: 0 },
     pupil_type: 'neutral',
-    render: { pupil: true }, // 동공(aperture stop) 메쉬 표시
   };
   el.color = {
     scene: { background: '#020617' },
@@ -147,10 +145,7 @@ if (el) {
     "z": -10,
     "vergence": 0
   },
-  "pupil_type": "neutral",
-  "render": {
-    "pupil": false
-  }
+  "pupil_type": "neutral"
 }
 ```
 
@@ -166,7 +161,6 @@ if (el) {
 - `lens`: 렌즈 배열. 각 항목은 엔진 렌즈 필드와 `diameter`, `type`(`lens` | `cross-cylinder`)을 지원합니다.
 - `light_source`: 광원 설정 (`type`, `width`, `height`, `division`, `z`, `vergence`)
 - `pupil_type`: 동공 타입
-- `render.pupil`: 동공(aperture stop) 메쉬 렌더링 여부 (`true` 시 검은색 메쉬로 렌더링, 기본값: `false`)
 
 #### `color`
 
