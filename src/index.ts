@@ -1117,6 +1117,9 @@ export class ScaxWc extends LitElement {
   private lightSourceObjects: THREE.Object3D[] = [];
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
+  private lockedEyeMeridianAxes?: { weak: number; strong: number };
+  private lockedCombinedMeridianAxes?: { weak: number; strong: number };
+  private lockedLensWeakAxesByIndex = new Map<number, number>();
   private hasInitialCameraFit = false;
   private lastSimulationResult: unknown = null;
   private lastSturmResult: unknown = null;
@@ -1400,13 +1403,20 @@ export class ScaxWc extends LitElement {
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
     const [eyeWeakMeridian, eyeStrongMeridian] = sortMeridiansByPowerStrength(eyeMeridians);
-    const eyeWeakAxis = Number.isFinite(Number(eyeWeakMeridian?.tabo))
+    const eyeWeakAxisRaw = Number.isFinite(Number(eyeWeakMeridian?.tabo))
       ? engineMeridianDeg(Number(eyeWeakMeridian?.tabo))
       : normalizeAxis180(baseCorneaAxis);
     const eyeStrongFromTabo = Number.isFinite(Number(eyeStrongMeridian?.tabo))
       ? engineMeridianDeg(Number(eyeStrongMeridian?.tabo))
-      : normalizeAxis180(eyeWeakAxis + 90);
-    const eyeStrongAxis = eyeStrongFromTabo;
+      : normalizeAxis180(eyeWeakAxisRaw + 90);
+    if (!this.lockedEyeMeridianAxes) {
+      this.lockedEyeMeridianAxes = {
+        weak: normalizeAxis180(eyeWeakAxisRaw),
+        strong: normalizeAxis180(eyeStrongFromTabo),
+      };
+    }
+    const eyeWeakAxis = this.lockedEyeMeridianAxes.weak;
+    const eyeStrongAxis = this.lockedEyeMeridianAxes.strong;
     const hasInsertedLens = lensSurfaces.length > 0;
     const hasInducedAstigmatism = hasInsertedLens && Number.isFinite(inducedAxisFromSturm);
     const activeCorneaAxisFromSturm = hasInducedAstigmatism
@@ -1417,13 +1427,20 @@ export class ScaxWc extends LitElement {
     );
     const [combinedWeakMeridian, combinedStrongMeridian] =
       sortMeridiansByPowerStrength(combinedMeridians);
-    const combinedWeakAxis = Number.isFinite(Number(combinedWeakMeridian?.tabo))
+    const combinedWeakAxisRaw = Number.isFinite(Number(combinedWeakMeridian?.tabo))
       ? engineMeridianDeg(Number(combinedWeakMeridian?.tabo))
       : activeCorneaAxisFromSturm;
     const combinedStrongFromTabo = Number.isFinite(Number(combinedStrongMeridian?.tabo))
       ? engineMeridianDeg(Number(combinedStrongMeridian?.tabo))
-      : normalizeAxis180(combinedWeakAxis + 90);
-    const combinedStrongAxis = combinedStrongFromTabo;
+      : normalizeAxis180(combinedWeakAxisRaw + 90);
+    if (!this.lockedCombinedMeridianAxes) {
+      this.lockedCombinedMeridianAxes = {
+        weak: normalizeAxis180(combinedWeakAxisRaw),
+        strong: normalizeAxis180(combinedStrongFromTabo),
+      };
+    }
+    const combinedWeakAxis = this.lockedCombinedMeridianAxes.weak;
+    const combinedStrongAxis = this.lockedCombinedMeridianAxes.strong;
 
     const lensRadiusBySurface = new Map<SurfaceLike, number>();
     const configLenses = Array.isArray(this.config?.lens) ? this.config.lens : [];
@@ -1512,6 +1529,12 @@ export class ScaxWc extends LitElement {
         const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
           ? engineMeridianDeg(Number(simWeakMeridian?.tabo))
           : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
+        const lockedLensWeakAxis = this.lockedLensWeakAxesByIndex.get(lensIndex);
+        const effectiveLensWeakAxis =
+          lockedLensWeakAxis === undefined ? normalizeAxis180(axisDeg) : lockedLensWeakAxis;
+        if (lockedLensWeakAxis === undefined) {
+          this.lockedLensWeakAxesByIndex.set(lensIndex, effectiveLensWeakAxis);
+        }
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
         const weakMeridianPower = Number.isFinite(Number(simWeakMeridian?.d))
           ? Number(simWeakMeridian?.d)
@@ -1519,8 +1542,14 @@ export class ScaxWc extends LitElement {
         const strongMeridianPower = Number.isFinite(Number(simStrongMeridian?.d))
           ? Number(simStrongMeridian?.d)
           : weakMeridianPower + Number(lensConfig?.c ?? 0);
-        let plusAxis = weakMeridianPower >= strongMeridianPower ? axisDeg : axisDeg + 90;
-        let minusAxis = weakMeridianPower < strongMeridianPower ? axisDeg : axisDeg + 90;
+        let plusAxis =
+          weakMeridianPower >= strongMeridianPower
+            ? effectiveLensWeakAxis
+            : effectiveLensWeakAxis + 90;
+        let minusAxis =
+          weakMeridianPower < strongMeridianPower
+            ? effectiveLensWeakAxis
+            : effectiveLensWeakAxis + 90;
 
         if (lensType === 'cross-cylinder') {
           const configuredAxisDeg = Number(lensConfig?.ax ?? part.ax ?? surface.ax ?? 0);
@@ -1619,14 +1648,14 @@ export class ScaxWc extends LitElement {
 
         const major = this.createMeridianLine(
           part,
-          axisDeg,
+          effectiveLensWeakAxis,
           halfLength,
           colorTheme.meridian.lens.weak,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const minor = this.createMeridianLine(
           part,
-          axisDeg + 90,
+          effectiveLensWeakAxis + 90,
           halfLength,
           colorTheme.meridian.lens.strong,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
