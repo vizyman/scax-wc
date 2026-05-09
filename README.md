@@ -238,7 +238,10 @@ if (el) {
 
 ### 이벤트
 
-- 현재 이 컴포넌트는 커스텀 이벤트를 디스패치하지 않습니다.
+- `simulation-complete`
+  - 시뮬레이션 파이프라인과 씬 재구성이 끝난 뒤 발생합니다.
+  - `event.detail.simulationResult`: 최신 `simulate()` 결과
+  - `event.detail.sturmResult`: 최신 Sturm 계산 결과
 
 ## 개발
 

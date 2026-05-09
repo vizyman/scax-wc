@@ -222,7 +222,10 @@ Key fields:
 
 ### Events
 
-- This component currently does not dispatch custom events.
+- `simulation-complete`
+  - Fired after simulation pipeline and scene rebuild complete.
+  - `event.detail.simulationResult`: latest `simulate()` result
+  - `event.detail.sturmResult`: latest Sturm calculation result
 
 ## Development
 

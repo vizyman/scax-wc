@@ -65,6 +65,13 @@ export type CameraStateInput = {
   zoom?: number;
 };
 
+export const SCAX_SIMULATION_COMPLETE_EVENT = 'simulation-complete';
+
+export interface ScaxSimulationCompleteDetail {
+  simulationResult: unknown;
+  sturmResult: unknown;
+}
+
 function isCameraProjection(value: unknown): value is CameraProjection {
   return value === 'perspective' || value === 'orthogonal';
 }
@@ -1239,6 +1246,20 @@ export class ScaxWc extends LitElement {
       simulationData.eyeAstigmatism,
       simulationData.lensAstigmatism,
       simulationData.combinedAstigmatism,
+    );
+    this.dispatchSimulationCompleteEvent();
+  }
+
+  private dispatchSimulationCompleteEvent(): void {
+    this.dispatchEvent(
+      new CustomEvent<ScaxSimulationCompleteDetail>(SCAX_SIMULATION_COMPLETE_EVENT, {
+        detail: {
+          simulationResult: this.lastSimulationResult,
+          sturmResult: this.lastSturmResult,
+        },
+        bubbles: true,
+        composed: true,
+      }),
     );
   }
 
