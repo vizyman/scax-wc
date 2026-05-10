@@ -483,11 +483,12 @@ function enforcePerpendicularMeridianPair(weakAxisDeg: number, strongAxisDeg: nu
  * Clinical TABO (0–180°): facing the eye, counter-clockwise is positive.
  * Scene meridian uses XY polar angle θ with direction (cos θ, sin θ).
  *
- * Lens/toric `axis_deg`, `tilt`, `ax`, and **lens** astigmatism `tabo` from the
- * engine share one frame (normalize to [0,180) only).
+ * Lens surface geometry (`axis_deg`, `tilt`, `ax`) is already in the scene frame.
+ * **Lens** astigmatism summaries (토릭·교차실린더) `tabo`는 임상 TABO →
+ * `clinicalTaboToSceneMeridianDeg`로 장면 주경선에 맞춤. `tabo`가 없을 때만
+ * 표면 `ax`에 `engineMeridianDeg`.
  *
- * Eye / combined astigmatism `tabo` is clinical TABO; mirror (−θ) maps it to the
- * same scene polar angle as cornea geometry overlays.
+ * Eye / combined astigmatism `tabo`도 동일하게 `clinicalTaboToSceneMeridianDeg`.
  */
 function engineMeridianDeg(angleDeg: number): number {
   const v = Number(angleDeg);
@@ -1617,13 +1618,14 @@ export class ScaxWc extends LitElement {
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
 
         if (lensType === 'cross-cylinder') {
-          // 주경선 각도: 일반 토릭 렌즈와 동일(TABO 정렬 → engineMeridianDeg).
+          // 토릭 렌즈 `tabo`는 장면 주경선과 같은 프레임. 교차실린더 요약 `tabo`는 임상 TABO라
+          // clinicalTaboToSceneMeridianDeg로 토릭과 동일한 회전 방향(AX↑ → 반시계)으로 맞춤.
           const xcFirstAxisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
-            ? engineMeridianDeg(Number(simFirstMeridian?.tabo))
+            ? clinicalTaboToSceneMeridianDeg(Number(simFirstMeridian?.tabo))
             : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
           const effectiveLensFirstAxis = normalizeAxis180(xcFirstAxisDeg);
           const xcSecondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
-            ? engineMeridianDeg(Number(simSecondMeridian?.tabo))
+            ? clinicalTaboToSceneMeridianDeg(Number(simSecondMeridian?.tabo))
             : normalizeAxis180(effectiveLensFirstAxis + 90);
           const effectiveLensSecondAxis =
             simulatedMeridians.length >= 2
@@ -1648,7 +1650,7 @@ export class ScaxWc extends LitElement {
             }
           } else {
             const configuredAxisDeg = Number(lensConfig?.ax ?? part.ax ?? surface.ax ?? 0);
-            const configuredSceneAxis = engineMeridianDeg(configuredAxisDeg);
+            const configuredSceneAxis = clinicalTaboToSceneMeridianDeg(configuredAxisDeg);
             const configuredAxisPower = Number(lensConfig?.s ?? 0);
             const configuredOrthogonalPower = configuredAxisPower + Number(lensConfig?.c ?? 0);
             const axisHasPlus = configuredAxisPower > 0;
@@ -1742,11 +1744,11 @@ export class ScaxWc extends LitElement {
         }
 
         const axisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
-          ? engineMeridianDeg(Number(simFirstMeridian?.tabo))
+          ? clinicalTaboToSceneMeridianDeg(Number(simFirstMeridian?.tabo))
           : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
         const effectiveLensFirstAxis = normalizeAxis180(axisDeg);
         const secondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
-          ? engineMeridianDeg(Number(simSecondMeridian?.tabo))
+          ? clinicalTaboToSceneMeridianDeg(Number(simSecondMeridian?.tabo))
           : normalizeAxis180(effectiveLensFirstAxis + 90);
         const effectiveLensSecondAxis =
           simulatedMeridians.length >= 2
