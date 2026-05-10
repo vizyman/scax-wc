@@ -1304,14 +1304,14 @@
 
         const VISUAL_Y_OFFSET = 0.0;
         let sturmIntervalCount = 0;
-        let sturmPlaneMarkerCount = 0;
+        let sturmApproxMarkerCount = 0;
         let sturmFallbackPointCount = 0;
         let sturmFocalLineCount = 0;
         sturmInfo.forEach(function (item) {
           const color = Number.isFinite(item?.color) ? item.color : 0x60a5fa;
           const anteriorPoint = toFinitePoint(item?.anterior?.profile?.at);
           const posteriorPoint = toFinitePoint(item?.posterior?.profile?.at);
-          const planePoint = toFinitePoint(item?.plane);
+          const approxCenterPoint = toFinitePoint(item?.approx_center);
           const hasAstigmatism = Boolean(item?.has_astigmatism);
 
           if (anteriorPoint && posteriorPoint) {
@@ -1333,11 +1333,11 @@
           if (hasAstigmatism && createOrientedFocalLine(item?.anterior?.profile, color, VISUAL_Y_OFFSET)) sturmFocalLineCount += 1;
           if (hasAstigmatism && createOrientedFocalLine(item?.posterior?.profile, color, VISUAL_Y_OFFSET)) sturmFocalLineCount += 1;
 
-          if (planePoint) {
-            const elevatedPlanePoint = planePoint.clone();
-            elevatedPlanePoint.y += VISUAL_Y_OFFSET;
-            createMarker(elevatedPlanePoint, color, 0.7);
-            sturmPlaneMarkerCount += 1;
+          if (approxCenterPoint) {
+            const elevatedApproxCenterPoint = approxCenterPoint.clone();
+            elevatedApproxCenterPoint.y += VISUAL_Y_OFFSET;
+            createMarker(elevatedApproxCenterPoint, color, 0.7);
+            sturmApproxMarkerCount += 1;
           }
         });
 
@@ -1387,7 +1387,7 @@
         "ray segments: " + raySegmentCount + "\n" +
         "sturm intervals: " + sturmIntervalCount + "\n" +
         "sturm focal lines: " + sturmFocalLineCount + "\n" +
-        "sturm plane markers: " + sturmPlaneMarkerCount + "\n" +
+        "sturm approx markers: " + sturmApproxMarkerCount + "\n" +
         "sturm fallback points: " + sturmFallbackPointCount + "\n" +
         "surface meridians: " + meridianLineCount + "\n" +
         "trace debug success/fail: " + debugSuccessCount + " / " + debugFailCount + "\n" +

@@ -166,7 +166,7 @@ Behavior:
 
 Key fields:
 - `surface`: surface colors (`apertureStop`, `cornea`, `compound`, `toric`, `sphericalImage`, `aspherical`)
-- `meridian`: three groups **`eye`**, **`combined`**, **`lens`**, each with `first` / `second`. Sort astigmatism summary rows by **clinical TABO ascending**; lowest TABO → `first`, next → `second`. Eye dashed overlays use `eye`, cornea combined solid lines use `combined`, toric lens overlays use `lens`. **Sturm focal lines and plane markers** use **`combined` only** (with `first`/`second` applied in reverse order compared to the cornea combined overlay). **`cross-cylinder`** lenses use only `cross_cylinder`.
+- `meridian`: three groups **`eye`**, **`combined`**, **`lens`**, each with `first` / `second`. Sort astigmatism summary rows by **clinical TABO ascending**; lowest TABO → `first`, next → `second`. Eye dashed overlays use `eye`, cornea combined solid lines use `combined`, toric lens overlays use `lens`. **Sturm focal lines and approx markers** use **`combined` only** (with `first`/`second` applied in reverse order compared to the cornea combined overlay). **`cross-cylinder`** lenses use only `cross_cylinder`.
 - `cross_cylinder`: cross-cylinder colors (`plus`, `minus`, `plusMarker`, `minusMarker`, `bisector`)
 - `scene.background`: Three.js scene background color
 

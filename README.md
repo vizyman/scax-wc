@@ -176,7 +176,7 @@ if (el) {
 주요 필드:
 
 - `surface`: 표면 색상 (`apertureStop`, `cornea`, `compound`, `toric`, `sphericalImage`, `aspherical`)
-- `meridian`: 주경선 색을 **`eye` · `combined` · `lens`** 각각 `first` / `second`로 둡니다. 난시 요약은 **TABO 오름차순**으로 정렬했을 때 첫 주경선 → `first`, 둘째 → `second`에 매핑됩니다. 안구 점선은 `eye`, 각막 결합 실선은 `combined`, 렌즈(토릭 등)는 `lens`를 씁니다. **Sturm 초점선·plane 마커**는 `combined`만 사용합니다(표시 시 `first`/`second` 적용 순서는 각막 결합선과 반대). **교차실린더** 렌즈는 `cross_cylinder`만 사용합니다.
+- `meridian`: 주경선 색을 **`eye` · `combined` · `lens`** 각각 `first` / `second`로 둡니다. 난시 요약은 **TABO 오름차순**으로 정렬했을 때 첫 주경선 → `first`, 둘째 → `second`에 매핑됩니다. 안구 점선은 `eye`, 각막 결합 실선은 `combined`, 렌즈(토릭 등)는 `lens`를 씁니다. **Sturm 초점선·근사 마커**는 `combined`만 사용합니다(표시 시 `first`/`second` 적용 순서는 각막 결합선과 반대). **교차실린더** 렌즈는 `cross_cylinder`만 사용합니다.
 - `cross_cylinder`: 크로스 실린더 색상 (`plus`, `minus`, `plusMarker`, `minusMarker`, `bisector`)
 - `scene.background`: Three.js scene 배경색
 

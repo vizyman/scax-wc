@@ -392,7 +392,7 @@ function applyEyeRenderRotation(
 type SturmInfoLike = {
   color?: number;
   has_astigmatism?: boolean;
-  plane?: { x?: number; y?: number; z?: number };
+  approx_center?: { x?: number; y?: number; z?: number };
   anterior?: { profile?: { at?: { x?: number; y?: number; z?: number }; angleMajorDeg?: number } };
   posterior?: { profile?: { at?: { x?: number; y?: number; z?: number }; angleMajorDeg?: number } };
 };
@@ -2023,7 +2023,7 @@ export class ScaxWc extends LitElement {
 
     for (let sturmIndex = 0; sturmIndex < sturmInfo.length; sturmIndex += 1) {
       const item = sturmInfo[sturmIndex];
-      const planePoint = toFinitePoint(item?.plane);
+      const approxCenterPoint = toFinitePoint(item?.approx_center);
       const profiles = [item?.anterior?.profile, item?.posterior?.profile] as const;
       const slotCenters: (THREE.Vector3 | null)[] = [
         profiles[0] ? toFinitePoint(profiles[0]?.at) : null,
@@ -2061,24 +2061,23 @@ export class ScaxWc extends LitElement {
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
-      if (planePoint) {
-        const markerRadius = 0.5;
-        const markerGeometry = new THREE.SphereGeometry(markerRadius, 24, 18);
+      if (approxCenterPoint) {
+        const planeSize = corneaDiameterMm;
+        const planeGeometry = new THREE.PlaneGeometry(planeSize, planeSize);
         const rayColor = Number(item?.color);
-        const markerHex = Number.isFinite(rayColor)
+        const planeHex = Number.isFinite(rayColor)
           ? rayColor
           : new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation).getHex();
-        const markerMaterial = new THREE.MeshStandardMaterial({
-          color: markerHex,
-          emissive: markerHex,
-          emissiveIntensity: 0.2,
-          metalness: 0.05,
-          roughness: 0.4,
+        const planeMaterial = new THREE.MeshBasicMaterial({
+          color: planeHex,
+          transparent: true,
+          opacity: 0.18,
           side: THREE.DoubleSide,
+          depthWrite: false,
         });
-        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-        marker.position.copy(planePoint);
-        objects.push(marker);
+        const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+        planeMesh.position.copy(approxCenterPoint);
+        objects.push(planeMesh);
       }
     }
 
