@@ -465,6 +465,26 @@ function sortMeridiansByTaboAscending<T extends { d?: number; tabo?: number }>(i
   });
 }
 
+/** Eye 경선 정렬: (60 - d) 값을 내림차순으로 정렬 */
+function sortEyeMeridiansBySixtyMinusDiopterDesc<T extends { d?: number; tabo?: number }>(
+  items: T[],
+): T[] {
+  return [...items].sort((a, b) => {
+    const aD = Number(a?.d);
+    const bD = Number(b?.d);
+    const aKey = Number.isFinite(aD) ? 60 - aD : -Infinity;
+    const bKey = Number.isFinite(bD) ? 60 - bD : -Infinity;
+    if (aKey !== bKey) return bKey - aKey;
+
+    const ta = Number(a?.tabo);
+    const tb = Number(b?.tabo);
+    const aTabo = Number.isFinite(ta) ? normalizeAxis180(ta) : Infinity;
+    const bTabo = Number.isFinite(tb) ? normalizeAxis180(tb) : Infinity;
+    if (aTabo !== bTabo) return aTabo - bTabo;
+    return 0;
+  });
+}
+
 /** Principal astigmatic meridians are always 90° apart; snap the partner angle if data drifts. */
 const MERIDIAN_ORTHOGONAL_TOLERANCE_DEG = 2;
 const MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG = Number.EPSILON;
@@ -1476,7 +1496,8 @@ export class ScaxWc extends LitElement {
     const eyeMeridians = eyeAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [eyeFirstMeridian, eyeSecondMeridian] = sortMeridiansByTaboAscending(eyeMeridians);
+    const [eyeFirstMeridian, eyeSecondMeridian] =
+      sortEyeMeridiansBySixtyMinusDiopterDesc(eyeMeridians);
     const eyeFirstAxisRaw = Number.isFinite(Number(eyeFirstMeridian?.tabo))
       ? clinicalTaboToSceneMeridianDeg(Number(eyeFirstMeridian?.tabo))
       : normalizeAxis180(baseCorneaAxis);
