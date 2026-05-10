@@ -465,15 +465,15 @@ function sortMeridiansByTaboAscending<T extends { d?: number; tabo?: number }>(i
   });
 }
 
-/** Eye 경선 정렬: (60 - d) 값을 내림차순으로 정렬 */
+/** Eye 경선 정렬: d<0 => 60+d, d>=0 => 60-d 값을 내림차순으로 정렬 */
 function sortEyeMeridiansBySixtyMinusDiopterDesc<T extends { d?: number; tabo?: number }>(
   items: T[],
 ): T[] {
   return [...items].sort((a, b) => {
     const aD = Number(a?.d);
     const bD = Number(b?.d);
-    const aKey = Number.isFinite(aD) ? 60 - aD : -Infinity;
-    const bKey = Number.isFinite(bD) ? 60 - bD : -Infinity;
+    const aKey = Number.isFinite(aD) ? (aD < 0 ? 60 + aD : 60 - aD) : -Infinity;
+    const bKey = Number.isFinite(bD) ? (bD < 0 ? 60 + bD : 60 - bD) : -Infinity;
     if (aKey !== bKey) return bKey - aKey;
 
     const ta = Number(a?.tabo);
