@@ -1,6 +1,6 @@
 {
   "name": "scax-wc",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "description": "webcomponent with scax-engine",
   "type": "module",
   "main": "./dist/scax-wc.cjs",

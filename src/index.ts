@@ -314,9 +314,7 @@ export function mergeScaxColorTheme(
     meridian: {
       eye: {
         first:
-          partial.meridian?.eye?.first ??
-          partial.meridian?.eye?.weak ??
-          base.meridian.eye.first,
+          partial.meridian?.eye?.first ?? partial.meridian?.eye?.weak ?? base.meridian.eye.first,
         second:
           partial.meridian?.eye?.second ??
           partial.meridian?.eye?.strong ??
@@ -336,9 +334,7 @@ export function mergeScaxColorTheme(
       },
       lens: {
         first:
-          partial.meridian?.lens?.first ??
-          partial.meridian?.lens?.weak ??
-          base.meridian.lens.first,
+          partial.meridian?.lens?.first ?? partial.meridian?.lens?.weak ?? base.meridian.lens.first,
         second:
           partial.meridian?.lens?.second ??
           partial.meridian?.lens?.strong ??
@@ -1353,7 +1349,9 @@ export class ScaxWc extends LitElement {
       simulationResult?.info?.astigmatism;
     // Engine types `astigmatism.lens` as one summary array; runtime is either that shape for a single
     // lens, or an array of summaries when multiple lenses exist.
-    const lensAstigmatism: AstigmatismSummaryItem[] = normalizePerLensAstigmatism(astigmatism?.lens);
+    const lensAstigmatism: AstigmatismSummaryItem[] = normalizePerLensAstigmatism(
+      astigmatism?.lens,
+    );
     const eyeAstigmatism: AstigmatismSummaryItem = Array.isArray(astigmatism?.eye)
       ? (astigmatism?.eye ?? [])
       : [];
@@ -1509,7 +1507,10 @@ export class ScaxWc extends LitElement {
     const combinedFirstAxis = normalizeAxis180(combinedFirstAxisRaw);
     const combinedSecondAxis =
       combinedMeridians.length >= 2
-        ? enforcePerpendicularMeridianPair(combinedFirstAxis, normalizeAxis180(combinedSecondFromTabo))
+        ? enforcePerpendicularMeridianPair(
+            combinedFirstAxis,
+            normalizeAxis180(combinedSecondFromTabo),
+          )
         : normalizeAxis180(combinedSecondFromTabo);
 
     const lensRadiusBySurface = new Map<SurfaceLike, number>();
@@ -1592,7 +1593,8 @@ export class ScaxWc extends LitElement {
               Number.isFinite(Number(item.tabo)),
           )
         : [];
-      const [simFirstMeridian, simSecondMeridian] = sortMeridiansByTaboAscending(simulatedMeridians);
+      const [simFirstMeridian, simSecondMeridian] =
+        sortMeridiansByTaboAscending(simulatedMeridians);
       for (const part of parts) {
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
 
@@ -1615,11 +1617,7 @@ export class ScaxWc extends LitElement {
           let minusAxis: number;
           const d1 = Number(simFirstMeridian?.d);
           const d2 = Number(simSecondMeridian?.d);
-          if (
-            simulatedMeridians.length >= 2 &&
-            Number.isFinite(d1) &&
-            Number.isFinite(d2)
-          ) {
+          if (simulatedMeridians.length >= 2 && Number.isFinite(d1) && Number.isFinite(d2)) {
             if (d1 >= d2) {
               plusAxis = effectiveLensFirstAxis;
               minusAxis = effectiveLensSecondAxis;
@@ -2047,8 +2045,7 @@ export class ScaxWc extends LitElement {
         const distToSecondMeridian = angleDistance180(angleDeg, secondAxisDeg);
         const perpGapFirst = Math.abs(90 - distToFirstMeridian);
         const perpGapSecond = Math.abs(90 - distToSecondMeridian);
-        let computedRole: 'first' | 'second' =
-          perpGapFirst < perpGapSecond ? 'first' : 'second';
+        let computedRole: 'first' | 'second' = perpGapFirst < perpGapSecond ? 'first' : 'second';
         if (Math.abs(perpGapFirst - perpGapSecond) < 1e-6 && slotDrawable[0] && slotDrawable[1]) {
           const z0 = slotCenters[0]!.z;
           const z1 = slotCenters[1]!.z;
@@ -2071,7 +2068,6 @@ export class ScaxWc extends LitElement {
         const planeMaterial = new THREE.MeshBasicMaterial({
           color: planeHex,
           transparent: true,
-          opacity: 0.18,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
