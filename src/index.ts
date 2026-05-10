@@ -223,10 +223,14 @@ export interface ScaxColorTheme {
     sphericalImage: ScaxColorValue;
     aspherical: ScaxColorValue;
   };
-  /** 안구·결합·렌즈 주경선 색: TABO 오름차순 1·2번에 동일 적용 (교차실린더 제외) */
+  /**
+   * 주경선 색: 각각 TABO 오름차순 1·2번에 매핑. `combined`는 결합 난시 각막선·Sturm에 사용.
+   * 교차실린더는 `cross_cylinder`만 사용.
+   */
   meridian: {
-    first: ScaxColorValue;
-    second: ScaxColorValue;
+    eye: { first: ScaxColorValue; second: ScaxColorValue };
+    combined: { first: ScaxColorValue; second: ScaxColorValue };
+    lens: { first: ScaxColorValue; second: ScaxColorValue };
   };
   cross_cylinder: {
     plus: ScaxColorValue;
@@ -240,11 +244,28 @@ export interface ScaxColorTheme {
   };
 }
 
-/** 레거시 JSON: `meridian.combined.weak` 등 → `first`/`second`로 병합됨 */
+/** 레거시: `weak`/`strong`, 통합 시절 최상위 `first`/`second`(→ combined) */
 type LegacyMeridianInput = {
-  combined?: { weak?: ScaxColorValue; strong?: ScaxColorValue };
-  eye?: { weak?: ScaxColorValue; strong?: ScaxColorValue };
-  lens?: { weak?: ScaxColorValue; strong?: ScaxColorValue };
+  first?: ScaxColorValue;
+  second?: ScaxColorValue;
+  combined?: {
+    weak?: ScaxColorValue;
+    strong?: ScaxColorValue;
+    first?: ScaxColorValue;
+    second?: ScaxColorValue;
+  };
+  eye?: {
+    weak?: ScaxColorValue;
+    strong?: ScaxColorValue;
+    first?: ScaxColorValue;
+    second?: ScaxColorValue;
+  };
+  lens?: {
+    weak?: ScaxColorValue;
+    strong?: ScaxColorValue;
+    first?: ScaxColorValue;
+    second?: ScaxColorValue;
+  };
 };
 
 export type ScaxColorThemeInput = DeepPartial<ScaxColorTheme> & {
@@ -262,8 +283,9 @@ export function defaultScaxColorTheme(): ScaxColorTheme {
       aspherical: '#22d3ee',
     },
     meridian: {
-      first: 0x06b6d4,
-      second: 0xf59e0b,
+      eye: { first: 0xf472b6, second: 0x38bdf8 },
+      combined: { first: 0x06b6d4, second: 0xf59e0b },
+      lens: { first: 0xec4899, second: 0x3b82f6 },
     },
     cross_cylinder: {
       plus: 0xef4444,
@@ -288,18 +310,38 @@ export function mergeScaxColorTheme(
     ...partial,
     surface: { ...base.surface, ...partial.surface },
     meridian: {
-      first:
-        partial.meridian?.first ??
-        partial.meridian?.combined?.weak ??
-        partial.meridian?.eye?.weak ??
-        partial.meridian?.lens?.weak ??
-        base.meridian.first,
-      second:
-        partial.meridian?.second ??
-        partial.meridian?.combined?.strong ??
-        partial.meridian?.eye?.strong ??
-        partial.meridian?.lens?.strong ??
-        base.meridian.second,
+      eye: {
+        first:
+          partial.meridian?.eye?.first ??
+          partial.meridian?.eye?.weak ??
+          base.meridian.eye.first,
+        second:
+          partial.meridian?.eye?.second ??
+          partial.meridian?.eye?.strong ??
+          base.meridian.eye.second,
+      },
+      combined: {
+        first:
+          partial.meridian?.combined?.first ??
+          partial.meridian?.combined?.weak ??
+          partial.meridian?.first ??
+          base.meridian.combined.first,
+        second:
+          partial.meridian?.combined?.second ??
+          partial.meridian?.combined?.strong ??
+          partial.meridian?.second ??
+          base.meridian.combined.second,
+      },
+      lens: {
+        first:
+          partial.meridian?.lens?.first ??
+          partial.meridian?.lens?.weak ??
+          base.meridian.lens.first,
+        second:
+          partial.meridian?.lens?.second ??
+          partial.meridian?.lens?.strong ??
+          base.meridian.lens.second,
+      },
     },
     cross_cylinder: { ...base.cross_cylinder, ...partial.cross_cylinder },
     scene: { ...base.scene, ...partial.scene },
@@ -468,8 +510,14 @@ function resolveSturmApproxMarkerRoleFromEngineColor(
   colorTheme: ScaxColorTheme,
 ): 'first' | 'second' | 'compound' {
   const candidates: { role: 'first' | 'second' | 'compound'; ref: THREE.Color }[] = [
-    { role: 'first', ref: new THREE.Color(colorTheme.meridian.first as THREE.ColorRepresentation) },
-    { role: 'second', ref: new THREE.Color(colorTheme.meridian.second as THREE.ColorRepresentation) },
+    {
+      role: 'first',
+      ref: new THREE.Color(colorTheme.meridian.combined.first as THREE.ColorRepresentation),
+    },
+    {
+      role: 'second',
+      ref: new THREE.Color(colorTheme.meridian.combined.second as THREE.ColorRepresentation),
+    },
     { role: 'compound', ref: new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation) },
   ];
   const fallbackHex = candidates[2].ref.getHex();
@@ -1694,14 +1742,14 @@ export class ScaxWc extends LitElement {
           part,
           effectiveLensFirstAxis,
           halfLength,
-          colorTheme.meridian.first,
+          colorTheme.meridian.lens.first,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const minor = this.createMeridianLine(
           part,
           effectiveLensSecondAxis,
           halfLength,
-          colorTheme.meridian.second,
+          colorTheme.meridian.lens.second,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (major) meridianObjects.push(major);
@@ -1715,14 +1763,14 @@ export class ScaxWc extends LitElement {
         corneaAstigSurface,
         combinedFirstAxis,
         halfLength,
-        colorTheme.meridian.first,
+        colorTheme.meridian.combined.first,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       const activeMinor = this.createMeridianLine(
         corneaAstigSurface,
         combinedSecondAxis,
         halfLength,
-        colorTheme.meridian.second,
+        colorTheme.meridian.combined.second,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       const addCorneaMeridian = (line: THREE.Line | null) => {
@@ -1742,14 +1790,14 @@ export class ScaxWc extends LitElement {
           corneaAstigSurface,
           eyeSecondAxis,
           halfLength,
-          colorTheme.meridian.second,
+          colorTheme.meridian.eye.second,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const eyeMinor = this.createMeridianDashedLine(
           corneaAstigSurface,
           eyeFirstAxis,
           halfLength,
-          colorTheme.meridian.first,
+          colorTheme.meridian.eye.first,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         addCorneaMeridian(eyeMajor);
@@ -1977,8 +2025,8 @@ export class ScaxWc extends LitElement {
         ? enforcePerpendicularMeridianPair(firstAxisDeg, secondAxisFromTabo)
         : secondAxisFromTabo;
 
-    const firstMeridianColor = colorTheme.meridian.first;
-    const secondMeridianColor = colorTheme.meridian.second;
+    const firstMeridianColor = colorTheme.meridian.combined.first;
+    const secondMeridianColor = colorTheme.meridian.combined.second;
 
     for (let sturmIndex = 0; sturmIndex < sturmInfo.length; sturmIndex += 1) {
       const item = sturmInfo[sturmIndex];
@@ -2015,7 +2063,7 @@ export class ScaxWc extends LitElement {
           computedRole = slot === nearestSlot ? 'second' : 'first';
         }
 
-        // Sturm만: 주경선 색 first/second를 (각막·렌즈 오버레이와 반대로) 뒤집어 사용
+        // Sturm만: `meridian.combined` first/second를 표시 시 한 번 뒤짐 (각막 결합선과 반대 순서)
         const color =
           computedRole === 'first' ? secondMeridianColor : firstMeridianColor;
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
@@ -2046,16 +2094,16 @@ export class ScaxWc extends LitElement {
     return objects;
   }
 
-  /** Sturm 근사 마커: 초점선과 같이 first/second 색만 오버레이 대비 반대로 씀 */
+  /** Sturm 근사 마커: `combined` 팔레트, 초점선과 같이 first/second 표시만 반대로 */
   private sturmApproxMarkerHexFromRole(
     role: 'first' | 'second' | 'compound',
     colorTheme: ScaxColorTheme,
   ): number {
     const raw =
       role === 'first'
-        ? colorTheme.meridian.second
+        ? colorTheme.meridian.combined.second
         : role === 'second'
-          ? colorTheme.meridian.first
+          ? colorTheme.meridian.combined.first
           : colorTheme.surface.compound;
     return typeof raw === 'number' ? raw : new THREE.Color(raw).getHex();
   }

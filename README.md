@@ -41,7 +41,7 @@ import 'scax-wc';
   color='{
     "scene":{"background":"#020617"},
     "surface":{"apertureStop":"#000000","cornea":"#e2e8f0","compound":"#60a5fa","toric":"#a855f7","sphericalImage":"#f97316","aspherical":"#06b6d4"},
-    "meridian":{"first":"#06b6d4","second":"#f59e0b"},
+    "meridian":{"eye":{"first":"#f472b6","second":"#38bdf8"},"combined":{"first":"#06b6d4","second":"#f59e0b"},"lens":{"first":"#ec4899","second":"#3b82f6"}},
     "cross_cylinder":{"plus":"#ef4444","minus":"#ffffff","plusMarker":"#ef4444","minusMarker":"#ffffff","bisector":"#000000"}
   }'
 ></scax-wc>
@@ -72,8 +72,9 @@ if (el) {
       aspherical: '#06b6d4',
     },
     meridian: {
-      first: '#06b6d4',
-      second: '#f59e0b',
+      eye: { first: '#f472b6', second: '#38bdf8' },
+      combined: { first: '#06b6d4', second: '#f59e0b' },
+      lens: { first: '#ec4899', second: '#3b82f6' },
     },
     cross_cylinder: {
       plus: '#ef4444',
@@ -175,11 +176,11 @@ if (el) {
 주요 필드:
 
 - `surface`: 표면 색상 (`apertureStop`, `cornea`, `compound`, `toric`, `sphericalImage`, `aspherical`)
-- `meridian`: 주경선 색상 한 세트 (`first`, `second`). 난시 요약의 **TABO 각도 오름차순**으로 정렬했을 때 첫 번째 주경선 → `first`, 두 번째 → `second`에 매핑됩니다. 결합·안구·렌즈 주경선 오버레이와 Sturm 초점선 색에 동일하게 적용됩니다. **교차실린더(`cross-cylinder`) 렌즈**는 이 필드를 쓰지 않고 아래 `cross_cylinder`만 사용합니다.
+- `meridian`: 주경선 색을 **`eye` · `combined` · `lens`** 각각 `first` / `second`로 둡니다. 난시 요약은 **TABO 오름차순**으로 정렬했을 때 첫 주경선 → `first`, 둘째 → `second`에 매핑됩니다. 안구 점선은 `eye`, 각막 결합 실선은 `combined`, 렌즈(토릭 등)는 `lens`를 씁니다. **Sturm 초점선·근사 마커**는 `combined`만 사용합니다(표시 시 `first`/`second` 적용 순서는 각막 결합선과 반대). **교차실린더** 렌즈는 `cross_cylinder`만 사용합니다.
 - `cross_cylinder`: 크로스 실린더 색상 (`plus`, `minus`, `plusMarker`, `minusMarker`, `bisector`)
 - `scene.background`: Three.js scene 배경색
 
-레거시 JSON 호환: 예전 `meridian.combined.weak` / `strong`(또는 `eye`·`lens` 동형 키)은 병합 시 각각 `first` / `second`로 대응됩니다.
+레거시 JSON: 각 그룹의 `weak` / `strong`은 `first` / `second`로 병합됩니다. 예전 통합 필드 `meridian.first` / `second`는 **`combined`** 으로 병합됩니다.
 
 #### `projection`
 

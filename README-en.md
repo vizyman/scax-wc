@@ -43,7 +43,7 @@ The default size uses a `16:9` aspect ratio and renders to fit its parent contai
   color='{
     "scene":{"background":"#020617"},
     "surface":{"apertureStop":"#000000","cornea":"#e2e8f0","compound":"#60a5fa","toric":"#a855f7","sphericalImage":"#f97316","aspherical":"#06b6d4"},
-    "meridian":{"first":"#06b6d4","second":"#f59e0b"},
+    "meridian":{"eye":{"first":"#f472b6","second":"#38bdf8"},"combined":{"first":"#06b6d4","second":"#f59e0b"},"lens":{"first":"#ec4899","second":"#3b82f6"}},
     "cross_cylinder":{"plus":"#ef4444","minus":"#ffffff","plusMarker":"#ef4444","minusMarker":"#ffffff","bisector":"#000000"}
   }'
 ></scax-wc>
@@ -74,8 +74,9 @@ if (el) {
       aspherical: '#06b6d4',
     },
     meridian: {
-      first: '#06b6d4',
-      second: '#f59e0b',
+      eye: { first: '#f472b6', second: '#38bdf8' },
+      combined: { first: '#06b6d4', second: '#f59e0b' },
+      lens: { first: '#ec4899', second: '#3b82f6' },
     },
     cross_cylinder: {
       plus: '#ef4444',
@@ -165,11 +166,11 @@ Behavior:
 
 Key fields:
 - `surface`: surface colors (`apertureStop`, `cornea`, `compound`, `toric`, `sphericalImage`, `aspherical`)
-- `meridian`: one pair of principal meridian colors (`first`, `second`). Astigmatism summary rows are sorted by **clinical TABO angle ascending**; the lowest TABO maps to `first`, the next to `second`. The same pair is used for combined/eye/lens meridian overlays and Sturm focal-line coloring. **`cross-cylinder` lenses** ignore `meridian` and use only `cross_cylinder` below.
+- `meridian`: three groups **`eye`**, **`combined`**, **`lens`**, each with `first` / `second`. Sort astigmatism summary rows by **clinical TABO ascending**; lowest TABO → `first`, next → `second`. Eye dashed overlays use `eye`, cornea combined solid lines use `combined`, toric lens overlays use `lens`. **Sturm focal lines and approx markers** use **`combined` only** (with `first`/`second` applied in reverse order compared to the cornea combined overlay). **`cross-cylinder`** lenses use only `cross_cylinder`.
 - `cross_cylinder`: cross-cylinder colors (`plus`, `minus`, `plusMarker`, `minusMarker`, `bisector`)
 - `scene.background`: Three.js scene background color
 
-Legacy JSON: older keys such as `meridian.combined.weak` / `strong` (and the same under `eye` / `lens`) are merged into `first` / `second` respectively.
+Legacy JSON: `weak` / `strong` under each group merge into `first` / `second`. Older unified `meridian.first` / `second` merge into **`combined`**.
 
 #### `projection`
 
