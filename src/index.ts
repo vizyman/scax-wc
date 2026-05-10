@@ -392,7 +392,7 @@ function applyEyeRenderRotation(
 type SturmInfoLike = {
   color?: number;
   has_astigmatism?: boolean;
-  approx_center?: { x?: number; y?: number; z?: number };
+  plane?: { x?: number; y?: number; z?: number };
   anterior?: { profile?: { at?: { x?: number; y?: number; z?: number }; angleMajorDeg?: number } };
   posterior?: { profile?: { at?: { x?: number; y?: number; z?: number }; angleMajorDeg?: number } };
 };
@@ -2023,7 +2023,7 @@ export class ScaxWc extends LitElement {
 
     for (let sturmIndex = 0; sturmIndex < sturmInfo.length; sturmIndex += 1) {
       const item = sturmInfo[sturmIndex];
-      const approxCenterPoint = toFinitePoint(item?.approx_center);
+      const planePoint = toFinitePoint(item?.plane);
       const profiles = [item?.anterior?.profile, item?.posterior?.profile] as const;
       const slotCenters: (THREE.Vector3 | null)[] = [
         profiles[0] ? toFinitePoint(profiles[0]?.at) : null,
@@ -2061,7 +2061,7 @@ export class ScaxWc extends LitElement {
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
-      if (approxCenterPoint) {
+      if (planePoint) {
         const markerRadius = 0.5;
         const markerGeometry = new THREE.SphereGeometry(markerRadius, 24, 18);
         const rayColor = Number(item?.color);
@@ -2077,7 +2077,7 @@ export class ScaxWc extends LitElement {
           side: THREE.DoubleSide,
         });
         const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-        marker.position.copy(approxCenterPoint);
+        marker.position.copy(planePoint);
         objects.push(marker);
       }
     }
