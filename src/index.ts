@@ -437,14 +437,15 @@ function enforcePerpendicularMeridianPair(weakAxisDeg: number, strongAxisDeg: nu
 }
 
 /**
- * Convert clinical TABO axis to scene xy angle (0-180°).
- * TABO axis is mirrored relative to math xy angle in our renderer,
- * so keep this conversion in one place for all meridian overlays.
+ * Clinical TABO (0–180°): facing the eye, counter-clockwise is positive.
+ * Scene meridian uses XY polar angle θ with direction (cos θ, sin θ). With a
+ * camera on −Z looking toward +Z, increasing θ is CCW on screen — matching TABO
+ * when we map axis degrees directly (no mirror).
  */
 function engineMeridianDeg(angleDeg: number): number {
   const v = Number(angleDeg);
   if (!Number.isFinite(v)) return 0;
-  return normalizeAxis180(180 - v);
+  return normalizeAxis180(v);
 }
 
 function createOrientedLineObject(
