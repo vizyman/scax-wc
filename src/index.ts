@@ -1117,8 +1117,10 @@ export class ScaxWc extends LitElement {
   private lightSourceObjects: THREE.Object3D[] = [];
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
-  /** Sturm 경선(anterior/posterior 슬롯별) 색 — 최초 1회만 계산 후 고정 */
-  private lockedSturmFocalLineColors = new Map<string, number>();
+  /** Sturm 초점선(anterior/posterior): 약·강 역할만 최초 1회 고정, 실제 색은 매번 테마 */
+  private lockedSturmFocalLineMeridianRoles = new Map<string, 'weak' | 'strong'>();
+  /** Sturm 구간 approx 중심 마커: 약·강·compound 역할만 최초 1회 고정, 실제 색은 매번 테마 */
+  private lockedSturmApproxMarkerColorRoles = new Map<string, 'weak' | 'strong' | 'compound'>();
   private hasInitialCameraFit = false;
   private lastSimulationResult: unknown = null;
   private lastSturmResult: unknown = null;
@@ -1309,7 +1311,8 @@ export class ScaxWc extends LitElement {
     this.ambientLight = undefined;
     this.directionalLight = undefined;
     this.scene = undefined;
-    this.lockedSturmFocalLineColors.clear();
+    this.lockedSturmFocalLineMeridianRoles.clear();
+    this.lockedSturmApproxMarkerColorRoles.clear();
   }
 
   private clearAllRenderableGroups(): void {
@@ -1954,34 +1957,37 @@ export class ScaxWc extends LitElement {
         const distToStrongMeridian = angleDistance180(angleDeg, strongAxisDeg);
         const perpGapWeak = Math.abs(90 - distToWeakMeridian);
         const perpGapStrong = Math.abs(90 - distToStrongMeridian);
-        let computedColor =
-          perpGapWeak < perpGapStrong ? weakMeridianColor : strongMeridianColor;
+        let computedRole: 'weak' | 'strong' =
+          perpGapWeak < perpGapStrong ? 'weak' : 'strong';
         if (Math.abs(perpGapWeak - perpGapStrong) < 1e-6 && slotDrawable[0] && slotDrawable[1]) {
           const z0 = slotCenters[0]!.z;
           const z1 = slotCenters[1]!.z;
           const nearestSlot = z0 <= z1 ? 0 : 1;
-          computedColor =
-            slot === nearestSlot ? strongMeridianColor : weakMeridianColor;
+          computedRole = slot === nearestSlot ? 'strong' : 'weak';
         }
 
         const lockKey = `${sturmIndex}-${slot === 0 ? 'a' : 'p'}`;
-        if (!this.lockedSturmFocalLineColors.has(lockKey)) {
-          const hex =
-            typeof computedColor === 'number'
-              ? computedColor
-              : new THREE.Color(computedColor).getHex();
-          this.lockedSturmFocalLineColors.set(lockKey, hex);
+        if (!this.lockedSturmFocalLineMeridianRoles.has(lockKey)) {
+          this.lockedSturmFocalLineMeridianRoles.set(lockKey, computedRole);
         }
-        const color = this.lockedSturmFocalLineColors.get(lockKey)!;
+        const role = this.lockedSturmFocalLineMeridianRoles.get(lockKey)!;
+        const color = role === 'weak' ? weakMeridianColor : strongMeridianColor;
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
       if (approxCenterPoint) {
         const markerRadius = 0.5;
         const markerGeometry = new THREE.SphereGeometry(markerRadius, 24, 18);
+        const markerLockKey = `approx-${sturmIndex}`;
+        const markerRole = this.lockSturmApproxMarkerColorRole(
+          markerLockKey,
+          Number.isFinite(item?.color) ? Number(item?.color) : undefined,
+          colorTheme,
+        );
+        const markerHex = this.sturmApproxMarkerHexFromRole(markerRole, colorTheme);
         const markerMaterial = new THREE.MeshStandardMaterial({
-          color: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
-          emissive: Number.isFinite(item?.color) ? (item.color as number) : 0x60a5fa,
+          color: markerHex,
+          emissive: markerHex,
           emissiveIntensity: 0.2,
           metalness: 0.05,
           roughness: 0.4,
@@ -1994,6 +2000,58 @@ export class ScaxWc extends LitElement {
     }
 
     return objects;
+  }
+
+  /**
+   * 엔진이 준 마커 색과 가장 가까운 테마 역할(약·강·compound)을 한 번만 저장합니다.
+   * 이후 시뮬에서 엔진 색이 바뀌어도 역할은 유지되고, 테마 변경 시 hex만 갱신됩니다.
+   */
+  private lockSturmApproxMarkerColorRole(
+    lockKey: string,
+    engineColor: number | undefined,
+    colorTheme: ScaxColorTheme,
+  ): 'weak' | 'strong' | 'compound' {
+    if (this.lockedSturmApproxMarkerColorRoles.has(lockKey)) {
+      return this.lockedSturmApproxMarkerColorRoles.get(lockKey)!;
+    }
+    const candidates: { role: 'weak' | 'strong' | 'compound'; ref: THREE.Color }[] = [
+      { role: 'weak', ref: new THREE.Color(colorTheme.meridian.combined.weak as THREE.ColorRepresentation) },
+      {
+        role: 'strong',
+        ref: new THREE.Color(colorTheme.meridian.combined.strong as THREE.ColorRepresentation),
+      },
+      { role: 'compound', ref: new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation) },
+    ];
+    const fallbackHex = candidates[2].ref.getHex();
+    const sampleHex = Number.isFinite(engineColor) ? (engineColor as number) : fallbackHex;
+    const sample = new THREE.Color(sampleHex);
+    let bestRole: 'weak' | 'strong' | 'compound' = 'compound';
+    let bestDist = Infinity;
+    for (const { role, ref } of candidates) {
+      const dr = sample.r - ref.r;
+      const dg = sample.g - ref.g;
+      const db = sample.b - ref.b;
+      const d = dr * dr + dg * dg + db * db;
+      if (d < bestDist) {
+        bestDist = d;
+        bestRole = role;
+      }
+    }
+    this.lockedSturmApproxMarkerColorRoles.set(lockKey, bestRole);
+    return bestRole;
+  }
+
+  private sturmApproxMarkerHexFromRole(
+    role: 'weak' | 'strong' | 'compound',
+    colorTheme: ScaxColorTheme,
+  ): number {
+    const raw =
+      role === 'weak'
+        ? colorTheme.meridian.combined.weak
+        : role === 'strong'
+          ? colorTheme.meridian.combined.strong
+          : colorTheme.surface.compound;
+    return typeof raw === 'number' ? raw : new THREE.Color(raw).getHex();
   }
 
   private clearSceneObjects(objects: THREE.Object3D[]) {
