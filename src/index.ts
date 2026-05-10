@@ -2027,12 +2027,21 @@ export class ScaxWc extends LitElement {
         profiles[0] ? toFinitePoint(profiles[0]?.at) : null,
         profiles[1] ? toFinitePoint(profiles[1]?.at) : null,
       ];
-      const slotDrawable = [0, 1].map((slot) => {
-        const profile = profiles[slot];
-        const center = slotCenters[slot];
-        const angleDeg = Number(profile?.angleMajorDeg);
-        return Boolean(profile) && Boolean(center) && Number.isFinite(angleDeg);
-      });
+      const drawableSlots = [0, 1]
+        .map((slot) => {
+          const profile = profiles[slot];
+          const center = slotCenters[slot];
+          const angleDeg = Number(profile?.angleMajorDeg);
+          if (!profile || !center || !Number.isFinite(angleDeg)) return null;
+          return { slot, center };
+        })
+        .filter((item): item is { slot: number; center: THREE.Vector3 } => Boolean(item))
+        .sort((a, b) => b.center.z - a.center.z);
+      const roleBySlot = new Map<number, 'first' | 'second'>();
+      for (let orderIndex = 0; orderIndex < drawableSlots.length; orderIndex += 1) {
+        const role: 'first' | 'second' = orderIndex % 2 === 0 ? 'first' : 'second';
+        roleBySlot.set(drawableSlots[orderIndex].slot, role);
+      }
 
       for (let slot = 0; slot < 2; slot += 1) {
         const profile = profiles[slot];
@@ -2040,18 +2049,8 @@ export class ScaxWc extends LitElement {
         const angleDeg = Number(profile?.angleMajorDeg);
         if (!profile || !center || !Number.isFinite(angleDeg)) continue;
         if (!item.has_astigmatism) continue;
-        // 결합 난시 주경선(TABO 순 1·2번): 프로파일에 더 직교에 가까운 경선 색을 사용.
-        const distToFirstMeridian = angleDistance180(angleDeg, firstAxisDeg);
-        const distToSecondMeridian = angleDistance180(angleDeg, secondAxisDeg);
-        const perpGapFirst = Math.abs(90 - distToFirstMeridian);
-        const perpGapSecond = Math.abs(90 - distToSecondMeridian);
-        let computedRole: 'first' | 'second' = perpGapFirst < perpGapSecond ? 'first' : 'second';
-        if (Math.abs(perpGapFirst - perpGapSecond) < 1e-6 && slotDrawable[0] && slotDrawable[1]) {
-          const z0 = slotCenters[0]!.z;
-          const z1 = slotCenters[1]!.z;
-          const nearestSlot = z0 <= z1 ? 0 : 1;
-          computedRole = slot === nearestSlot ? 'second' : 'first';
-        }
+        // 초선은 z 큰 순서(내림차순)로 first/second 역할을 부여해 경선 색과 매핑한다.
+        const computedRole = roleBySlot.get(slot) ?? 'first';
 
         // 초선: combined 경선 색이나 역매핑 (위 `computedRole` 은 경선 1·2번 축 정렬)
         const color = combinedColorForSturmFocalLine(computedRole, colorTheme);
