@@ -483,9 +483,11 @@ function enforcePerpendicularMeridianPair(weakAxisDeg: number, strongAxisDeg: nu
  * Clinical TABO (0–180°): facing the eye, counter-clockwise is positive.
  * Scene meridian uses XY polar angle θ with direction (cos θ, sin θ).
  *
- * Surface geometry (`axis_deg`, `tilt`, `ax`) already matches the toric mesh.
- * Astigmatism summaries report `tabo` in clinical TABO; negating aligns those
- * overlays with the same scene polar angle as the engine surfaces.
+ * Lens/toric `axis_deg`, `tilt`, `ax`, and **lens** astigmatism `tabo` from the
+ * engine share one frame (normalize to [0,180) only).
+ *
+ * Eye / combined astigmatism `tabo` is clinical TABO; mirror (−θ) maps it to the
+ * same scene polar angle as cornea geometry overlays.
  */
 function engineMeridianDeg(angleDeg: number): number {
   const v = Number(angleDeg);
@@ -1615,48 +1617,57 @@ export class ScaxWc extends LitElement {
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
 
         if (lensType === 'cross-cylinder') {
-          const [simWeakMeridian, simStrongMeridian] = [...simulatedMeridians].sort(
-            (a, b) => Number(a.d) - Number(b.d),
-          );
-          const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
-            ? clinicalTaboToSceneMeridianDeg(Number(simWeakMeridian?.tabo))
+          // 주경선 각도: 일반 토릭 렌즈와 동일(TABO 정렬 → engineMeridianDeg).
+          const xcFirstAxisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
+            ? engineMeridianDeg(Number(simFirstMeridian?.tabo))
             : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
-          const effectiveLensWeakAxis = normalizeAxis180(axisDeg);
-          const weakMeridianPower = Number.isFinite(Number(simWeakMeridian?.d))
-            ? Number(simWeakMeridian?.d)
-            : Number(lensConfig?.s ?? 0);
-          const strongMeridianPower = Number.isFinite(Number(simStrongMeridian?.d))
-            ? Number(simStrongMeridian?.d)
-            : weakMeridianPower + Number(lensConfig?.c ?? 0);
-          let plusAxis =
-            weakMeridianPower >= strongMeridianPower
-              ? effectiveLensWeakAxis
-              : effectiveLensWeakAxis + 90;
-          let minusAxis =
-            weakMeridianPower < strongMeridianPower
-              ? effectiveLensWeakAxis
-              : effectiveLensWeakAxis + 90;
-          const configuredAxisDeg = Number(lensConfig?.ax ?? part.ax ?? surface.ax ?? 0);
-          const configuredAxisPower = Number(lensConfig?.s ?? 0);
-          const configuredOrthogonalPower = configuredAxisPower + Number(lensConfig?.c ?? 0);
-          const axisHasPlus = configuredAxisPower > 0;
-          const orthogonalHasPlus = configuredOrthogonalPower > 0;
-          const axisHasMinus = configuredAxisPower < 0;
-          const orthogonalHasMinus = configuredOrthogonalPower < 0;
+          const effectiveLensFirstAxis = normalizeAxis180(xcFirstAxisDeg);
+          const xcSecondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
+            ? engineMeridianDeg(Number(simSecondMeridian?.tabo))
+            : normalizeAxis180(effectiveLensFirstAxis + 90);
+          const effectiveLensSecondAxis =
+            simulatedMeridians.length >= 2
+              ? enforcePerpendicularMeridianPair(effectiveLensFirstAxis, xcSecondFromTabo)
+              : normalizeAxis180(xcSecondFromTabo);
 
-          // Cross-cylinder: marker polarity should follow meridian sign (+/-), not strong/weak ordering.
-          if (axisHasPlus !== orthogonalHasPlus && axisHasMinus !== orthogonalHasMinus) {
-            plusAxis = axisHasPlus ? configuredAxisDeg : configuredAxisDeg + 90;
-            minusAxis = axisHasMinus ? configuredAxisDeg : configuredAxisDeg + 90;
+          let plusAxis: number;
+          let minusAxis: number;
+          const d1 = Number(simFirstMeridian?.d);
+          const d2 = Number(simSecondMeridian?.d);
+          if (
+            simulatedMeridians.length >= 2 &&
+            Number.isFinite(d1) &&
+            Number.isFinite(d2)
+          ) {
+            if (d1 >= d2) {
+              plusAxis = effectiveLensFirstAxis;
+              minusAxis = effectiveLensSecondAxis;
+            } else {
+              plusAxis = effectiveLensSecondAxis;
+              minusAxis = effectiveLensFirstAxis;
+            }
           } else {
-            plusAxis =
-              configuredAxisPower >= configuredOrthogonalPower
-                ? configuredAxisDeg
-                : configuredAxisDeg + 90;
-            minusAxis =
-              configuredAxisPower < configuredOrthogonalPower
-                ? configuredAxisDeg
-                : configuredAxisDeg + 90;
+            const configuredAxisDeg = Number(lensConfig?.ax ?? part.ax ?? surface.ax ?? 0);
+            const configuredSceneAxis = engineMeridianDeg(configuredAxisDeg);
+            const configuredAxisPower = Number(lensConfig?.s ?? 0);
+            const configuredOrthogonalPower = configuredAxisPower + Number(lensConfig?.c ?? 0);
+            const axisHasPlus = configuredAxisPower > 0;
+            const orthogonalHasPlus = configuredOrthogonalPower > 0;
+            const axisHasMinus = configuredAxisPower < 0;
+            const orthogonalHasMinus = configuredOrthogonalPower < 0;
+            if (axisHasPlus !== orthogonalHasPlus && axisHasMinus !== orthogonalHasMinus) {
+              plusAxis = axisHasPlus ? configuredSceneAxis : configuredSceneAxis + 90;
+              minusAxis = axisHasMinus ? configuredSceneAxis : configuredSceneAxis + 90;
+            } else {
+              plusAxis =
+                configuredAxisPower >= configuredOrthogonalPower
+                  ? configuredSceneAxis
+                  : configuredSceneAxis + 90;
+              minusAxis =
+                configuredAxisPower < configuredOrthogonalPower
+                  ? configuredSceneAxis
+                  : configuredSceneAxis + 90;
+            }
           }
 
           const bisectorA = this.createMeridianDashedLine(
@@ -1731,11 +1742,11 @@ export class ScaxWc extends LitElement {
         }
 
         const axisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
-          ? clinicalTaboToSceneMeridianDeg(Number(simFirstMeridian?.tabo))
+          ? engineMeridianDeg(Number(simFirstMeridian?.tabo))
           : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
         const effectiveLensFirstAxis = normalizeAxis180(axisDeg);
         const secondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
-          ? clinicalTaboToSceneMeridianDeg(Number(simSecondMeridian?.tabo))
+          ? engineMeridianDeg(Number(simSecondMeridian?.tabo))
           : normalizeAxis180(effectiveLensFirstAxis + 90);
         const effectiveLensSecondAxis =
           simulatedMeridians.length >= 2
