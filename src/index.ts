@@ -1117,9 +1117,8 @@ export class ScaxWc extends LitElement {
   private lightSourceObjects: THREE.Object3D[] = [];
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
-  private lockedEyeMeridianAxes?: { weak: number; strong: number };
-  private lockedCombinedMeridianAxes?: { weak: number; strong: number };
-  private lockedLensWeakAxesByIndex = new Map<number, number>();
+  /** Sturm 경선(anterior/posterior 슬롯별) 색 — 최초 1회만 계산 후 고정 */
+  private lockedSturmFocalLineColors = new Map<string, number>();
   private hasInitialCameraFit = false;
   private lastSimulationResult: unknown = null;
   private lastSturmResult: unknown = null;
@@ -1310,6 +1309,7 @@ export class ScaxWc extends LitElement {
     this.ambientLight = undefined;
     this.directionalLight = undefined;
     this.scene = undefined;
+    this.lockedSturmFocalLineColors.clear();
   }
 
   private clearAllRenderableGroups(): void {
@@ -1411,14 +1411,11 @@ export class ScaxWc extends LitElement {
     const eyeStrongFromTabo = Number.isFinite(Number(eyeStrongMeridian?.tabo))
       ? engineMeridianDeg(Number(eyeStrongMeridian?.tabo))
       : normalizeAxis180(eyeWeakAxisRaw + 90);
-    if (!this.lockedEyeMeridianAxes) {
-      this.lockedEyeMeridianAxes = {
-        weak: normalizeAxis180(eyeWeakAxisRaw),
-        strong: normalizeAxis180(eyeStrongFromTabo),
-      };
-    }
-    const eyeWeakAxis = this.lockedEyeMeridianAxes.weak;
-    const eyeStrongAxis = this.lockedEyeMeridianAxes.strong;
+    const eyeWeakAxis = normalizeAxis180(eyeWeakAxisRaw);
+    const eyeStrongAxis =
+      eyeMeridians.length >= 2
+        ? enforcePerpendicularMeridianPair(eyeWeakAxis, normalizeAxis180(eyeStrongFromTabo))
+        : normalizeAxis180(eyeStrongFromTabo);
     const hasInsertedLens = lensSurfaces.length > 0;
     const hasInducedAstigmatism = hasInsertedLens && Number.isFinite(inducedAxisFromSturm);
     const activeCorneaAxisFromSturm = hasInducedAstigmatism
@@ -1435,14 +1432,11 @@ export class ScaxWc extends LitElement {
     const combinedStrongFromTabo = Number.isFinite(Number(combinedStrongMeridian?.tabo))
       ? engineMeridianDeg(Number(combinedStrongMeridian?.tabo))
       : normalizeAxis180(combinedWeakAxisRaw + 90);
-    if (!this.lockedCombinedMeridianAxes) {
-      this.lockedCombinedMeridianAxes = {
-        weak: normalizeAxis180(combinedWeakAxisRaw),
-        strong: normalizeAxis180(combinedStrongFromTabo),
-      };
-    }
-    const combinedWeakAxis = this.lockedCombinedMeridianAxes.weak;
-    const combinedStrongAxis = this.lockedCombinedMeridianAxes.strong;
+    const combinedWeakAxis = normalizeAxis180(combinedWeakAxisRaw);
+    const combinedStrongAxis =
+      combinedMeridians.length >= 2
+        ? enforcePerpendicularMeridianPair(combinedWeakAxis, normalizeAxis180(combinedStrongFromTabo))
+        : normalizeAxis180(combinedStrongFromTabo);
 
     const lensRadiusBySurface = new Map<SurfaceLike, number>();
     const configLenses = Array.isArray(this.config?.lens) ? this.config.lens : [];
@@ -1531,12 +1525,7 @@ export class ScaxWc extends LitElement {
         const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
           ? engineMeridianDeg(Number(simWeakMeridian?.tabo))
           : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
-        const lockedLensWeakAxis = this.lockedLensWeakAxesByIndex.get(lensIndex);
-        const effectiveLensWeakAxis =
-          lockedLensWeakAxis === undefined ? normalizeAxis180(axisDeg) : lockedLensWeakAxis;
-        if (lockedLensWeakAxis === undefined) {
-          this.lockedLensWeakAxesByIndex.set(lensIndex, effectiveLensWeakAxis);
-        }
+        const effectiveLensWeakAxis = normalizeAxis180(axisDeg);
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
         const weakMeridianPower = Number.isFinite(Number(simWeakMeridian?.d))
           ? Number(simWeakMeridian?.d)
@@ -1935,28 +1924,29 @@ export class ScaxWc extends LitElement {
         ? enforcePerpendicularMeridianPair(weakAxisDeg, strongAxisFromTabo)
         : strongAxisFromTabo;
 
-    for (const item of sturmInfo) {
-      const approxCenterPoint = toFinitePoint(item?.approx_center);
-      const profiles = [item?.anterior?.profile, item?.posterior?.profile];
-      const drawableProfiles = profiles
-        .map((profile) => ({
-          profile,
-          center: toFinitePoint(profile?.at),
-          angleDeg: Number(profile?.angleMajorDeg),
-        }))
-        .filter(
-          (
-            entry,
-          ): entry is {
-            profile: NonNullable<(typeof profiles)[number]>;
-            center: THREE.Vector3;
-            angleDeg: number;
-          } => Boolean(entry.profile) && Boolean(entry.center) && Number.isFinite(entry.angleDeg),
-        );
+    const weakMeridianColor = colorTheme.meridian.combined.weak;
+    const strongMeridianColor = colorTheme.meridian.combined.strong;
 
-      for (let profileIndex = 0; profileIndex < drawableProfiles.length; profileIndex += 1) {
-        const { center, angleDeg } = drawableProfiles[profileIndex];
-        if (!center || !Number.isFinite(angleDeg)) continue;
+    for (let sturmIndex = 0; sturmIndex < sturmInfo.length; sturmIndex += 1) {
+      const item = sturmInfo[sturmIndex];
+      const approxCenterPoint = toFinitePoint(item?.approx_center);
+      const profiles = [item?.anterior?.profile, item?.posterior?.profile] as const;
+      const slotCenters: (THREE.Vector3 | null)[] = [
+        profiles[0] ? toFinitePoint(profiles[0]?.at) : null,
+        profiles[1] ? toFinitePoint(profiles[1]?.at) : null,
+      ];
+      const slotDrawable = [0, 1].map((slot) => {
+        const profile = profiles[slot];
+        const center = slotCenters[slot];
+        const angleDeg = Number(profile?.angleMajorDeg);
+        return Boolean(profile) && Boolean(center) && Number.isFinite(angleDeg);
+      });
+
+      for (let slot = 0; slot < 2; slot += 1) {
+        const profile = profiles[slot];
+        const center = slotCenters[slot];
+        const angleDeg = Number(profile?.angleMajorDeg);
+        if (!profile || !center || !Number.isFinite(angleDeg)) continue;
         if (!item.has_astigmatism) continue;
         // Focal line uses combined principal meridians: whichever meridian is closer to
         // perpendicular to the drawn profile gets that meridian's strong/weak color.
@@ -1964,17 +1954,25 @@ export class ScaxWc extends LitElement {
         const distToStrongMeridian = angleDistance180(angleDeg, strongAxisDeg);
         const perpGapWeak = Math.abs(90 - distToWeakMeridian);
         const perpGapStrong = Math.abs(90 - distToStrongMeridian);
-        let color =
-          perpGapWeak < perpGapStrong
-            ? colorTheme.meridian.combined.weak
-            : colorTheme.meridian.combined.strong;
-        if (Math.abs(perpGapWeak - perpGapStrong) < 1e-6 && drawableProfiles.length >= 2) {
-          const nearestIndex = drawableProfiles[0].center.z <= drawableProfiles[1].center.z ? 0 : 1;
-          color =
-            profileIndex === nearestIndex
-              ? colorTheme.meridian.combined.strong
-              : colorTheme.meridian.combined.weak;
+        let computedColor =
+          perpGapWeak < perpGapStrong ? weakMeridianColor : strongMeridianColor;
+        if (Math.abs(perpGapWeak - perpGapStrong) < 1e-6 && slotDrawable[0] && slotDrawable[1]) {
+          const z0 = slotCenters[0]!.z;
+          const z1 = slotCenters[1]!.z;
+          const nearestSlot = z0 <= z1 ? 0 : 1;
+          computedColor =
+            slot === nearestSlot ? strongMeridianColor : weakMeridianColor;
         }
+
+        const lockKey = `${sturmIndex}-${slot === 0 ? 'a' : 'p'}`;
+        if (!this.lockedSturmFocalLineColors.has(lockKey)) {
+          const hex =
+            typeof computedColor === 'number'
+              ? computedColor
+              : new THREE.Color(computedColor).getHex();
+          this.lockedSturmFocalLineColors.set(lockKey, hex);
+        }
+        const color = this.lockedSturmFocalLineColors.get(lockKey)!;
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
