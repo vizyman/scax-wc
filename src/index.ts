@@ -452,14 +452,18 @@ function angleDistance180(aDeg: number, bDeg: number): number {
   return Math.min(diff, 180 - diff);
 }
 
-/** 주경선 색 매핑: 임상 TABO 각도 오름차순 → 1번·2번 경선 */
-function sortMeridiansByTaboAscending<T extends { tabo?: number }>(items: T[]): T[] {
+/** 주경선 색 매핑: TABO를 [0,180)으로 접은 뒤 오름차순 → 1번·2번 경선 (180 ≡ 0) */
+function sortMeridiansByTaboAscending<T extends { d?: number; tabo?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
     const ta = Number(a?.tabo);
     const tb = Number(b?.tabo);
-    const aTabo = Number.isFinite(ta) ? ta : Infinity;
-    const bTabo = Number.isFinite(tb) ? tb : Infinity;
-    return aTabo - bTabo;
+    const aKey = Number.isFinite(ta) ? normalizeAxis180(ta) : Infinity;
+    const bKey = Number.isFinite(tb) ? normalizeAxis180(tb) : Infinity;
+    if (aKey !== bKey) return aKey - bKey;
+    const aD = Number(a?.d);
+    const bD = Number(b?.d);
+    if (Number.isFinite(aD) && Number.isFinite(bD)) return aD - bD;
+    return 0;
   });
 }
 
