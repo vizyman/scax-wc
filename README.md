@@ -41,7 +41,7 @@ import 'scax-wc';
   color='{
     "scene":{"background":"#020617"},
     "surface":{"apertureStop":"#000000","cornea":"#e2e8f0","compound":"#60a5fa","toric":"#a855f7","sphericalImage":"#f97316","aspherical":"#06b6d4"},
-    "meridian":{"combined":{"strong":"#f59e0b","weak":"#06b6d4"},"eye":{"strong":"#38bdf8","weak":"#f472b6"},"lens":{"strong":"#3b82f6","weak":"#ec4899"}},
+    "meridian":{"first":"#06b6d4","second":"#f59e0b"},
     "cross_cylinder":{"plus":"#ef4444","minus":"#ffffff","plusMarker":"#ef4444","minusMarker":"#ffffff","bisector":"#000000"}
   }'
 ></scax-wc>
@@ -72,9 +72,8 @@ if (el) {
       aspherical: '#06b6d4',
     },
     meridian: {
-      combined: { strong: '#f59e0b', weak: '#06b6d4' },
-      eye: { strong: '#38bdf8', weak: '#f472b6' },
-      lens: { strong: '#3b82f6', weak: '#ec4899' },
+      first: '#06b6d4',
+      second: '#f59e0b',
     },
     cross_cylinder: {
       plus: '#ef4444',
@@ -176,11 +175,11 @@ if (el) {
 주요 필드:
 
 - `surface`: 표면 색상 (`apertureStop`, `cornea`, `compound`, `toric`, `sphericalImage`, `aspherical`)
-- `meridian.combined`: 결합 난시 메리디안 색상 (`strong`, `weak`)
-- `meridian.eye`: 안구 메리디안 색상 (`strong`, `weak`)
-- `meridian.lens`: 안경 렌즈 메리디안 색상 (`strong`, `weak`)
+- `meridian`: 주경선 색상 한 세트 (`first`, `second`). 난시 요약의 **TABO 각도 오름차순**으로 정렬했을 때 첫 번째 주경선 → `first`, 두 번째 → `second`에 매핑됩니다. 결합·안구·렌즈 주경선 오버레이와 Sturm 초점선 색에 동일하게 적용됩니다. **교차실린더(`cross-cylinder`) 렌즈**는 이 필드를 쓰지 않고 아래 `cross_cylinder`만 사용합니다.
 - `cross_cylinder`: 크로스 실린더 색상 (`plus`, `minus`, `plusMarker`, `minusMarker`, `bisector`)
 - `scene.background`: Three.js scene 배경색
+
+레거시 JSON 호환: 예전 `meridian.combined.weak` / `strong`(또는 `eye`·`lens` 동형 키)은 병합 시 각각 `first` / `second`로 대응됩니다.
 
 #### `projection`
 

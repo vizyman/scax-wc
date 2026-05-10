@@ -43,7 +43,7 @@ The default size uses a `16:9` aspect ratio and renders to fit its parent contai
   color='{
     "scene":{"background":"#020617"},
     "surface":{"apertureStop":"#000000","cornea":"#e2e8f0","compound":"#60a5fa","toric":"#a855f7","sphericalImage":"#f97316","aspherical":"#06b6d4"},
-    "meridian":{"combined":{"strong":"#f59e0b","weak":"#06b6d4"},"eye":{"strong":"#38bdf8","weak":"#f472b6"},"lens":{"strong":"#3b82f6","weak":"#ec4899"}},
+    "meridian":{"first":"#06b6d4","second":"#f59e0b"},
     "cross_cylinder":{"plus":"#ef4444","minus":"#ffffff","plusMarker":"#ef4444","minusMarker":"#ffffff","bisector":"#000000"}
   }'
 ></scax-wc>
@@ -74,9 +74,8 @@ if (el) {
       aspherical: '#06b6d4',
     },
     meridian: {
-      combined: { strong: '#f59e0b', weak: '#06b6d4' },
-      eye: { strong: '#38bdf8', weak: '#f472b6' },
-      lens: { strong: '#3b82f6', weak: '#ec4899' },
+      first: '#06b6d4',
+      second: '#f59e0b',
     },
     cross_cylinder: {
       plus: '#ef4444',
@@ -166,11 +165,11 @@ Behavior:
 
 Key fields:
 - `surface`: surface colors (`apertureStop`, `cornea`, `compound`, `toric`, `sphericalImage`, `aspherical`)
-- `meridian.combined`: combined astigmatism meridian colors (`strong`, `weak`)
-- `meridian.eye`: eye meridian colors (`strong`, `weak`)
-- `meridian.lens`: spectacle lens meridian colors (`strong`, `weak`)
+- `meridian`: one pair of principal meridian colors (`first`, `second`). Astigmatism summary rows are sorted by **clinical TABO angle ascending**; the lowest TABO maps to `first`, the next to `second`. The same pair is used for combined/eye/lens meridian overlays and Sturm focal-line coloring. **`cross-cylinder` lenses** ignore `meridian` and use only `cross_cylinder` below.
 - `cross_cylinder`: cross-cylinder colors (`plus`, `minus`, `plusMarker`, `minusMarker`, `bisector`)
 - `scene.background`: Three.js scene background color
+
+Legacy JSON: older keys such as `meridian.combined.weak` / `strong` (and the same under `eye` / `lens`) are merged into `first` / `second` respectively.
 
 #### `projection`
 

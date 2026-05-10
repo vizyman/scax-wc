@@ -223,19 +223,10 @@ export interface ScaxColorTheme {
     sphericalImage: ScaxColorValue;
     aspherical: ScaxColorValue;
   };
+  /** 안구·결합·렌즈 주경선 색: TABO 오름차순 1·2번에 동일 적용 (교차실린더 제외) */
   meridian: {
-    combined: {
-      strong: ScaxColorValue;
-      weak: ScaxColorValue;
-    };
-    eye: {
-      strong: ScaxColorValue;
-      weak: ScaxColorValue;
-    };
-    lens: {
-      strong: ScaxColorValue;
-      weak: ScaxColorValue;
-    };
+    first: ScaxColorValue;
+    second: ScaxColorValue;
   };
   cross_cylinder: {
     plus: ScaxColorValue;
@@ -249,7 +240,16 @@ export interface ScaxColorTheme {
   };
 }
 
-export type ScaxColorThemeInput = DeepPartial<ScaxColorTheme>;
+/** 레거시 JSON: `meridian.combined.weak` 등 → `first`/`second`로 병합됨 */
+type LegacyMeridianInput = {
+  combined?: { weak?: ScaxColorValue; strong?: ScaxColorValue };
+  eye?: { weak?: ScaxColorValue; strong?: ScaxColorValue };
+  lens?: { weak?: ScaxColorValue; strong?: ScaxColorValue };
+};
+
+export type ScaxColorThemeInput = DeepPartial<ScaxColorTheme> & {
+  meridian?: DeepPartial<ScaxColorTheme['meridian']> & LegacyMeridianInput;
+};
 
 export function defaultScaxColorTheme(): ScaxColorTheme {
   return {
@@ -262,18 +262,8 @@ export function defaultScaxColorTheme(): ScaxColorTheme {
       aspherical: '#22d3ee',
     },
     meridian: {
-      combined: {
-        strong: 0xf59e0b,
-        weak: 0x06b6d4,
-      },
-      eye: {
-        strong: 0x38bdf8,
-        weak: 0xf472b6,
-      },
-      lens: {
-        strong: 0x3b82f6,
-        weak: 0xec4899,
-      },
+      first: 0x06b6d4,
+      second: 0xf59e0b,
     },
     cross_cylinder: {
       plus: 0xef4444,
@@ -298,11 +288,18 @@ export function mergeScaxColorTheme(
     ...partial,
     surface: { ...base.surface, ...partial.surface },
     meridian: {
-      ...base.meridian,
-      ...partial.meridian,
-      combined: { ...base.meridian.combined, ...partial.meridian?.combined },
-      eye: { ...base.meridian.eye, ...partial.meridian?.eye },
-      lens: { ...base.meridian.lens, ...partial.meridian?.lens },
+      first:
+        partial.meridian?.first ??
+        partial.meridian?.combined?.weak ??
+        partial.meridian?.eye?.weak ??
+        partial.meridian?.lens?.weak ??
+        base.meridian.first,
+      second:
+        partial.meridian?.second ??
+        partial.meridian?.combined?.strong ??
+        partial.meridian?.eye?.strong ??
+        partial.meridian?.lens?.strong ??
+        base.meridian.second,
     },
     cross_cylinder: { ...base.cross_cylinder, ...partial.cross_cylinder },
     scene: { ...base.scene, ...partial.scene },
@@ -413,14 +410,14 @@ function angleDistance180(aDeg: number, bDeg: number): number {
   return Math.min(diff, 180 - diff);
 }
 
-function sortMeridiansByPowerStrength<T extends { d?: number }>(items: T[]): T[] {
+/** 주경선 색 매핑: 임상 TABO 각도 오름차순 → 1번·2번 경선 */
+function sortMeridiansByTaboAscending<T extends { tabo?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
-    const aPower = Number(a?.d);
-    const bPower = Number(b?.d);
-    const aStrength = Number.isFinite(aPower) ? Math.abs(aPower) : Number.NEGATIVE_INFINITY;
-    const bStrength = Number.isFinite(bPower) ? Math.abs(bPower) : Number.NEGATIVE_INFINITY;
-    if (aStrength === bStrength) return aPower - bPower;
-    return aStrength - bStrength;
+    const ta = Number(a?.tabo);
+    const tb = Number(b?.tabo);
+    const aTabo = Number.isFinite(ta) ? ta : Infinity;
+    const bTabo = Number.isFinite(tb) ? tb : Infinity;
+    return aTabo - bTabo;
   });
 }
 
@@ -463,6 +460,34 @@ function normalizePerLensAstigmatism(lensField: unknown): AstigmatismSummaryItem
     return lensField as AstigmatismSummaryItem[];
   }
   return [lensField as AstigmatismSummaryItem];
+}
+
+/** 엔진 색과 가장 가까운 테마 역할(매 재구성 시 계산, 상태 저장 없음) */
+function resolveSturmApproxMarkerRoleFromEngineColor(
+  engineColor: number | undefined,
+  colorTheme: ScaxColorTheme,
+): 'first' | 'second' | 'compound' {
+  const candidates: { role: 'first' | 'second' | 'compound'; ref: THREE.Color }[] = [
+    { role: 'first', ref: new THREE.Color(colorTheme.meridian.first as THREE.ColorRepresentation) },
+    { role: 'second', ref: new THREE.Color(colorTheme.meridian.second as THREE.ColorRepresentation) },
+    { role: 'compound', ref: new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation) },
+  ];
+  const fallbackHex = candidates[2].ref.getHex();
+  const sampleHex = Number.isFinite(engineColor) ? (engineColor as number) : fallbackHex;
+  const sample = new THREE.Color(sampleHex);
+  let bestRole: 'first' | 'second' | 'compound' = 'compound';
+  let bestDist = Infinity;
+  for (const { role, ref } of candidates) {
+    const dr = sample.r - ref.r;
+    const dg = sample.g - ref.g;
+    const db = sample.b - ref.b;
+    const d = dr * dr + dg * dg + db * db;
+    if (d < bestDist) {
+      bestDist = d;
+      bestRole = role;
+    }
+  }
+  return bestRole;
 }
 
 function createOrientedLineObject(
@@ -1135,10 +1160,6 @@ export class ScaxWc extends LitElement {
   private lightSourceObjects: THREE.Object3D[] = [];
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
-  /** Sturm 초점선(anterior/posterior): 약·강 역할만 최초 1회 고정, 실제 색은 매번 테마 */
-  private lockedSturmFocalLineMeridianRoles = new Map<string, 'weak' | 'strong'>();
-  /** Sturm 구간 approx 중심 마커: 약·강·compound 역할만 최초 1회 고정, 실제 색은 매번 테마 */
-  private lockedSturmApproxMarkerColorRoles = new Map<string, 'weak' | 'strong' | 'compound'>();
   private hasInitialCameraFit = false;
   private lastSimulationResult: unknown = null;
   private lastSturmResult: unknown = null;
@@ -1329,8 +1350,6 @@ export class ScaxWc extends LitElement {
     this.ambientLight = undefined;
     this.directionalLight = undefined;
     this.scene = undefined;
-    this.lockedSturmFocalLineMeridianRoles.clear();
-    this.lockedSturmApproxMarkerColorRoles.clear();
   }
 
   private clearAllRenderableGroups(): void {
@@ -1425,39 +1444,39 @@ export class ScaxWc extends LitElement {
     const eyeMeridians = eyeAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [eyeWeakMeridian, eyeStrongMeridian] = sortMeridiansByPowerStrength(eyeMeridians);
-    const eyeWeakAxisRaw = Number.isFinite(Number(eyeWeakMeridian?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(eyeWeakMeridian?.tabo))
+    const [eyeFirstMeridian, eyeSecondMeridian] = sortMeridiansByTaboAscending(eyeMeridians);
+    const eyeFirstAxisRaw = Number.isFinite(Number(eyeFirstMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(eyeFirstMeridian?.tabo))
       : normalizeAxis180(baseCorneaAxis);
-    const eyeStrongFromTabo = Number.isFinite(Number(eyeStrongMeridian?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(eyeStrongMeridian?.tabo))
-      : normalizeAxis180(eyeWeakAxisRaw + 90);
-    const eyeWeakAxis = normalizeAxis180(eyeWeakAxisRaw);
-    const eyeStrongAxis =
+    const eyeSecondFromTabo = Number.isFinite(Number(eyeSecondMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(eyeSecondMeridian?.tabo))
+      : normalizeAxis180(eyeFirstAxisRaw + 90);
+    const eyeFirstAxis = normalizeAxis180(eyeFirstAxisRaw);
+    const eyeSecondAxis =
       eyeMeridians.length >= 2
-        ? enforcePerpendicularMeridianPair(eyeWeakAxis, normalizeAxis180(eyeStrongFromTabo))
-        : normalizeAxis180(eyeStrongFromTabo);
+        ? enforcePerpendicularMeridianPair(eyeFirstAxis, normalizeAxis180(eyeSecondFromTabo))
+        : normalizeAxis180(eyeSecondFromTabo);
     const hasInsertedLens = lensSurfaces.length > 0;
     const hasInducedAstigmatism = hasInsertedLens && Number.isFinite(inducedAxisFromSturm);
     const activeCorneaAxisFromSturm = hasInducedAstigmatism
       ? normalizeAxis180(inducedAxisFromSturm + 90)
-      : eyeWeakAxis;
+      : eyeFirstAxis;
     const combinedMeridians = combinedAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [combinedWeakMeridian, combinedStrongMeridian] =
-      sortMeridiansByPowerStrength(combinedMeridians);
-    const combinedWeakAxisRaw = Number.isFinite(Number(combinedWeakMeridian?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(combinedWeakMeridian?.tabo))
+    const [combinedFirstMeridian, combinedSecondMeridian] =
+      sortMeridiansByTaboAscending(combinedMeridians);
+    const combinedFirstAxisRaw = Number.isFinite(Number(combinedFirstMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedFirstMeridian?.tabo))
       : activeCorneaAxisFromSturm;
-    const combinedStrongFromTabo = Number.isFinite(Number(combinedStrongMeridian?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(combinedStrongMeridian?.tabo))
-      : normalizeAxis180(combinedWeakAxisRaw + 90);
-    const combinedWeakAxis = normalizeAxis180(combinedWeakAxisRaw);
-    const combinedStrongAxis =
+    const combinedSecondFromTabo = Number.isFinite(Number(combinedSecondMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedSecondMeridian?.tabo))
+      : normalizeAxis180(combinedFirstAxisRaw + 90);
+    const combinedFirstAxis = normalizeAxis180(combinedFirstAxisRaw);
+    const combinedSecondAxis =
       combinedMeridians.length >= 2
-        ? enforcePerpendicularMeridianPair(combinedWeakAxis, normalizeAxis180(combinedStrongFromTabo))
-        : normalizeAxis180(combinedStrongFromTabo);
+        ? enforcePerpendicularMeridianPair(combinedFirstAxis, normalizeAxis180(combinedSecondFromTabo))
+        : normalizeAxis180(combinedSecondFromTabo);
 
     const lensRadiusBySurface = new Map<SurfaceLike, number>();
     const configLenses = Array.isArray(this.config?.lens) ? this.config.lens : [];
@@ -1539,31 +1558,32 @@ export class ScaxWc extends LitElement {
               Number.isFinite(Number(item.tabo)),
           )
         : [];
-      const [simWeakMeridian, simStrongMeridian] = [...simulatedMeridians].sort(
-        (a, b) => Number(a.d) - Number(b.d),
-      );
+      const [simFirstMeridian, simSecondMeridian] = sortMeridiansByTaboAscending(simulatedMeridians);
       for (const part of parts) {
-        const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
-          ? clinicalTaboToSceneMeridianDeg(Number(simWeakMeridian?.tabo))
-          : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
-        const effectiveLensWeakAxis = normalizeAxis180(axisDeg);
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
-        const weakMeridianPower = Number.isFinite(Number(simWeakMeridian?.d))
-          ? Number(simWeakMeridian?.d)
-          : Number(lensConfig?.s ?? 0);
-        const strongMeridianPower = Number.isFinite(Number(simStrongMeridian?.d))
-          ? Number(simStrongMeridian?.d)
-          : weakMeridianPower + Number(lensConfig?.c ?? 0);
-        let plusAxis =
-          weakMeridianPower >= strongMeridianPower
-            ? effectiveLensWeakAxis
-            : effectiveLensWeakAxis + 90;
-        let minusAxis =
-          weakMeridianPower < strongMeridianPower
-            ? effectiveLensWeakAxis
-            : effectiveLensWeakAxis + 90;
 
         if (lensType === 'cross-cylinder') {
+          const [simWeakMeridian, simStrongMeridian] = [...simulatedMeridians].sort(
+            (a, b) => Number(a.d) - Number(b.d),
+          );
+          const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
+            ? clinicalTaboToSceneMeridianDeg(Number(simWeakMeridian?.tabo))
+            : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
+          const effectiveLensWeakAxis = normalizeAxis180(axisDeg);
+          const weakMeridianPower = Number.isFinite(Number(simWeakMeridian?.d))
+            ? Number(simWeakMeridian?.d)
+            : Number(lensConfig?.s ?? 0);
+          const strongMeridianPower = Number.isFinite(Number(simStrongMeridian?.d))
+            ? Number(simStrongMeridian?.d)
+            : weakMeridianPower + Number(lensConfig?.c ?? 0);
+          let plusAxis =
+            weakMeridianPower >= strongMeridianPower
+              ? effectiveLensWeakAxis
+              : effectiveLensWeakAxis + 90;
+          let minusAxis =
+            weakMeridianPower < strongMeridianPower
+              ? effectiveLensWeakAxis
+              : effectiveLensWeakAxis + 90;
           const configuredAxisDeg = Number(lensConfig?.ax ?? part.ax ?? surface.ax ?? 0);
           const configuredAxisPower = Number(lensConfig?.s ?? 0);
           const configuredOrthogonalPower = configuredAxisPower + Number(lensConfig?.c ?? 0);
@@ -1658,18 +1678,30 @@ export class ScaxWc extends LitElement {
           continue;
         }
 
+        const axisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
+          ? clinicalTaboToSceneMeridianDeg(Number(simFirstMeridian?.tabo))
+          : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
+        const effectiveLensFirstAxis = normalizeAxis180(axisDeg);
+        const secondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
+          ? clinicalTaboToSceneMeridianDeg(Number(simSecondMeridian?.tabo))
+          : normalizeAxis180(effectiveLensFirstAxis + 90);
+        const effectiveLensSecondAxis =
+          simulatedMeridians.length >= 2
+            ? enforcePerpendicularMeridianPair(effectiveLensFirstAxis, secondFromTabo)
+            : normalizeAxis180(secondFromTabo);
+
         const major = this.createMeridianLine(
           part,
-          effectiveLensWeakAxis,
+          effectiveLensFirstAxis,
           halfLength,
-          colorTheme.meridian.lens.weak,
+          colorTheme.meridian.first,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const minor = this.createMeridianLine(
           part,
-          effectiveLensWeakAxis + 90,
+          effectiveLensSecondAxis,
           halfLength,
-          colorTheme.meridian.lens.strong,
+          colorTheme.meridian.second,
           LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         if (major) meridianObjects.push(major);
@@ -1681,16 +1713,16 @@ export class ScaxWc extends LitElement {
       const halfLength = Math.max(2.5, estimateSurfaceRadius(corneaAstigSurface) * 0.9);
       const activeMajor = this.createMeridianLine(
         corneaAstigSurface,
-        combinedWeakAxis,
+        combinedFirstAxis,
         halfLength,
-        colorTheme.meridian.combined.weak,
+        colorTheme.meridian.first,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       const activeMinor = this.createMeridianLine(
         corneaAstigSurface,
-        combinedStrongAxis,
+        combinedSecondAxis,
         halfLength,
-        colorTheme.meridian.combined.strong,
+        colorTheme.meridian.second,
         CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
       );
       const addCorneaMeridian = (line: THREE.Line | null) => {
@@ -1702,22 +1734,22 @@ export class ScaxWc extends LitElement {
       addCorneaMeridian(activeMinor);
 
       const eyeCombinedAxisMatch =
-        angleDistance180(eyeWeakAxis, combinedWeakAxis) <= MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG &&
-        angleDistance180(eyeStrongAxis, combinedStrongAxis) <= MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG;
+        angleDistance180(eyeFirstAxis, combinedFirstAxis) <= MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG &&
+        angleDistance180(eyeSecondAxis, combinedSecondAxis) <= MERIDIAN_OVERLAY_MATCH_TOLERANCE_DEG;
       // If eye/combined astigmatism axes are effectively identical, render only combined lines.
       if (!eyeCombinedAxisMatch) {
         const eyeMajor = this.createMeridianDashedLine(
           corneaAstigSurface,
-          eyeStrongAxis,
+          eyeSecondAxis,
           halfLength,
-          colorTheme.meridian.eye.strong,
+          colorTheme.meridian.second,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         const eyeMinor = this.createMeridianDashedLine(
           corneaAstigSurface,
-          eyeWeakAxis,
+          eyeFirstAxis,
           halfLength,
-          colorTheme.meridian.eye.weak,
+          colorTheme.meridian.first,
           CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM,
         );
         addCorneaMeridian(eyeMajor);
@@ -1933,20 +1965,20 @@ export class ScaxWc extends LitElement {
     const combinedMeridians = combinedAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [combinedWeak, combinedStrong] = sortMeridiansByPowerStrength(combinedMeridians);
-    const weakAxisDeg = Number.isFinite(Number(combinedWeak?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(combinedWeak?.tabo))
+    const [combinedFirst, combinedSecond] = sortMeridiansByTaboAscending(combinedMeridians);
+    const firstAxisDeg = Number.isFinite(Number(combinedFirst?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedFirst?.tabo))
       : 90;
-    const strongAxisFromTabo = Number.isFinite(Number(combinedStrong?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(combinedStrong?.tabo))
-      : normalizeAxis180(weakAxisDeg + 90);
-    const strongAxisDeg =
+    const secondAxisFromTabo = Number.isFinite(Number(combinedSecond?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedSecond?.tabo))
+      : normalizeAxis180(firstAxisDeg + 90);
+    const secondAxisDeg =
       combinedMeridians.length >= 2
-        ? enforcePerpendicularMeridianPair(weakAxisDeg, strongAxisFromTabo)
-        : strongAxisFromTabo;
+        ? enforcePerpendicularMeridianPair(firstAxisDeg, secondAxisFromTabo)
+        : secondAxisFromTabo;
 
-    const weakMeridianColor = colorTheme.meridian.combined.weak;
-    const strongMeridianColor = colorTheme.meridian.combined.strong;
+    const firstMeridianColor = colorTheme.meridian.first;
+    const secondMeridianColor = colorTheme.meridian.second;
 
     for (let sturmIndex = 0; sturmIndex < sturmInfo.length; sturmIndex += 1) {
       const item = sturmInfo[sturmIndex];
@@ -1969,36 +2001,30 @@ export class ScaxWc extends LitElement {
         const angleDeg = Number(profile?.angleMajorDeg);
         if (!profile || !center || !Number.isFinite(angleDeg)) continue;
         if (!item.has_astigmatism) continue;
-        // Focal line uses combined principal meridians: whichever meridian is closer to
-        // perpendicular to the drawn profile gets that meridian's strong/weak color.
-        const distToWeakMeridian = angleDistance180(angleDeg, weakAxisDeg);
-        const distToStrongMeridian = angleDistance180(angleDeg, strongAxisDeg);
-        const perpGapWeak = Math.abs(90 - distToWeakMeridian);
-        const perpGapStrong = Math.abs(90 - distToStrongMeridian);
-        let computedRole: 'weak' | 'strong' =
-          perpGapWeak < perpGapStrong ? 'weak' : 'strong';
-        if (Math.abs(perpGapWeak - perpGapStrong) < 1e-6 && slotDrawable[0] && slotDrawable[1]) {
+        // 결합 난시 주경선(TABO 순 1·2번): 프로파일에 더 직교에 가까운 경선 색을 사용.
+        const distToFirstMeridian = angleDistance180(angleDeg, firstAxisDeg);
+        const distToSecondMeridian = angleDistance180(angleDeg, secondAxisDeg);
+        const perpGapFirst = Math.abs(90 - distToFirstMeridian);
+        const perpGapSecond = Math.abs(90 - distToSecondMeridian);
+        let computedRole: 'first' | 'second' =
+          perpGapFirst < perpGapSecond ? 'first' : 'second';
+        if (Math.abs(perpGapFirst - perpGapSecond) < 1e-6 && slotDrawable[0] && slotDrawable[1]) {
           const z0 = slotCenters[0]!.z;
           const z1 = slotCenters[1]!.z;
           const nearestSlot = z0 <= z1 ? 0 : 1;
-          computedRole = slot === nearestSlot ? 'strong' : 'weak';
+          computedRole = slot === nearestSlot ? 'second' : 'first';
         }
 
-        const lockKey = `${sturmIndex}-${slot === 0 ? 'a' : 'p'}`;
-        if (!this.lockedSturmFocalLineMeridianRoles.has(lockKey)) {
-          this.lockedSturmFocalLineMeridianRoles.set(lockKey, computedRole);
-        }
-        const role = this.lockedSturmFocalLineMeridianRoles.get(lockKey)!;
-        const color = role === 'weak' ? weakMeridianColor : strongMeridianColor;
+        // Sturm만: 주경선 색 first/second를 (각막·렌즈 오버레이와 반대로) 뒤집어 사용
+        const color =
+          computedRole === 'first' ? secondMeridianColor : firstMeridianColor;
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
       if (approxCenterPoint) {
         const markerRadius = 0.5;
         const markerGeometry = new THREE.SphereGeometry(markerRadius, 24, 18);
-        const markerLockKey = `approx-${sturmIndex}`;
-        const markerRole = this.lockSturmApproxMarkerColorRole(
-          markerLockKey,
+        const markerRole = resolveSturmApproxMarkerRoleFromEngineColor(
           Number.isFinite(item?.color) ? Number(item?.color) : undefined,
           colorTheme,
         );
@@ -2020,54 +2046,16 @@ export class ScaxWc extends LitElement {
     return objects;
   }
 
-  /**
-   * 엔진이 준 마커 색과 가장 가까운 테마 역할(약·강·compound)을 한 번만 저장합니다.
-   * 이후 시뮬에서 엔진 색이 바뀌어도 역할은 유지되고, 테마 변경 시 hex만 갱신됩니다.
-   */
-  private lockSturmApproxMarkerColorRole(
-    lockKey: string,
-    engineColor: number | undefined,
-    colorTheme: ScaxColorTheme,
-  ): 'weak' | 'strong' | 'compound' {
-    if (this.lockedSturmApproxMarkerColorRoles.has(lockKey)) {
-      return this.lockedSturmApproxMarkerColorRoles.get(lockKey)!;
-    }
-    const candidates: { role: 'weak' | 'strong' | 'compound'; ref: THREE.Color }[] = [
-      { role: 'weak', ref: new THREE.Color(colorTheme.meridian.combined.weak as THREE.ColorRepresentation) },
-      {
-        role: 'strong',
-        ref: new THREE.Color(colorTheme.meridian.combined.strong as THREE.ColorRepresentation),
-      },
-      { role: 'compound', ref: new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation) },
-    ];
-    const fallbackHex = candidates[2].ref.getHex();
-    const sampleHex = Number.isFinite(engineColor) ? (engineColor as number) : fallbackHex;
-    const sample = new THREE.Color(sampleHex);
-    let bestRole: 'weak' | 'strong' | 'compound' = 'compound';
-    let bestDist = Infinity;
-    for (const { role, ref } of candidates) {
-      const dr = sample.r - ref.r;
-      const dg = sample.g - ref.g;
-      const db = sample.b - ref.b;
-      const d = dr * dr + dg * dg + db * db;
-      if (d < bestDist) {
-        bestDist = d;
-        bestRole = role;
-      }
-    }
-    this.lockedSturmApproxMarkerColorRoles.set(lockKey, bestRole);
-    return bestRole;
-  }
-
+  /** Sturm 근사 마커: 초점선과 같이 first/second 색만 오버레이 대비 반대로 씀 */
   private sturmApproxMarkerHexFromRole(
-    role: 'weak' | 'strong' | 'compound',
+    role: 'first' | 'second' | 'compound',
     colorTheme: ScaxColorTheme,
   ): number {
     const raw =
-      role === 'weak'
-        ? colorTheme.meridian.combined.weak
-        : role === 'strong'
-          ? colorTheme.meridian.combined.strong
+      role === 'first'
+        ? colorTheme.meridian.second
+        : role === 'second'
+          ? colorTheme.meridian.first
           : colorTheme.surface.compound;
     return typeof raw === 'number' ? raw : new THREE.Color(raw).getHex();
   }
