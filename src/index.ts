@@ -513,40 +513,6 @@ function normalizePerLensAstigmatism(lensField: unknown): AstigmatismSummaryItem
   return [lensField as AstigmatismSummaryItem];
 }
 
-/** 엔진 색과 가장 가까운 테마 역할(매 재구성 시 계산, 상태 저장 없음) */
-function resolveSturmApproxMarkerRoleFromEngineColor(
-  engineColor: number | undefined,
-  colorTheme: ScaxColorTheme,
-): 'first' | 'second' | 'compound' {
-  const candidates: { role: 'first' | 'second' | 'compound'; ref: THREE.Color }[] = [
-    {
-      role: 'first',
-      ref: new THREE.Color(colorTheme.meridian.combined.first as THREE.ColorRepresentation),
-    },
-    {
-      role: 'second',
-      ref: new THREE.Color(colorTheme.meridian.combined.second as THREE.ColorRepresentation),
-    },
-    { role: 'compound', ref: new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation) },
-  ];
-  const fallbackHex = candidates[2].ref.getHex();
-  const sampleHex = Number.isFinite(engineColor) ? (engineColor as number) : fallbackHex;
-  const sample = new THREE.Color(sampleHex);
-  let bestRole: 'first' | 'second' | 'compound' = 'compound';
-  let bestDist = Infinity;
-  for (const { role, ref } of candidates) {
-    const dr = sample.r - ref.r;
-    const dg = sample.g - ref.g;
-    const db = sample.b - ref.b;
-    const d = dr * dr + dg * dg + db * db;
-    if (d < bestDist) {
-      bestDist = d;
-      bestRole = role;
-    }
-  }
-  return bestRole;
-}
-
 /**
  * Sturm 초점선·근사 마커: `meridian.combined` 경선 색을 쓰되, 결합 주경선과 반대로 매핑.
  * (`meridianRole` 은 TABO 순 1·2번 **경선** 역할 — 그에 대응하는 초선 표시색은 역쌍.)
@@ -2098,11 +2064,10 @@ export class ScaxWc extends LitElement {
       if (approxCenterPoint) {
         const markerRadius = 0.5;
         const markerGeometry = new THREE.SphereGeometry(markerRadius, 24, 18);
-        const markerRole = resolveSturmApproxMarkerRoleFromEngineColor(
-          Number.isFinite(item?.color) ? Number(item?.color) : undefined,
-          colorTheme,
-        );
-        const markerHex = this.sturmApproxMarkerHexFromRole(markerRole, colorTheme);
+        const rayColor = Number(item?.color);
+        const markerHex = Number.isFinite(rayColor)
+          ? rayColor
+          : new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation).getHex();
         const markerMaterial = new THREE.MeshStandardMaterial({
           color: markerHex,
           emissive: markerHex,
@@ -2118,18 +2083,6 @@ export class ScaxWc extends LitElement {
     }
 
     return objects;
-  }
-
-  /** Sturm 근사 마커: 엔진 색이 가리키는 경선 역할에 대해 초선과 동일한 combined 역매핑 */
-  private sturmApproxMarkerHexFromRole(
-    role: 'first' | 'second' | 'compound',
-    colorTheme: ScaxColorTheme,
-  ): number {
-    const raw =
-      role === 'first' || role === 'second'
-        ? combinedColorForSturmFocalLine(role, colorTheme)
-        : colorTheme.surface.compound;
-    return typeof raw === 'number' ? raw : new THREE.Color(raw).getHex();
   }
 
   private clearSceneObjects(objects: THREE.Object3D[]) {
