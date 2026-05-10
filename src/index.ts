@@ -438,14 +438,31 @@ function enforcePerpendicularMeridianPair(weakAxisDeg: number, strongAxisDeg: nu
 
 /**
  * Clinical TABO (0–180°): facing the eye, counter-clockwise is positive.
- * Scene meridian uses XY polar angle θ with direction (cos θ, sin θ). With a
- * camera on −Z looking toward +Z, increasing θ is CCW on screen — matching TABO
- * when we map axis degrees directly (no mirror).
+ * Scene meridian uses XY polar angle θ with direction (cos θ, sin θ).
+ *
+ * Surface geometry (`axis_deg`, `tilt`, `ax`) already matches the toric mesh.
+ * Astigmatism summaries report `tabo` in clinical TABO; negating aligns those
+ * overlays with the same scene polar angle as the engine surfaces.
  */
 function engineMeridianDeg(angleDeg: number): number {
   const v = Number(angleDeg);
   if (!Number.isFinite(v)) return 0;
   return normalizeAxis180(v);
+}
+
+function clinicalTaboToSceneMeridianDeg(taboDeg: number): number {
+  const v = Number(taboDeg);
+  if (!Number.isFinite(v)) return 0;
+  return normalizeAxis180(-v);
+}
+
+function normalizePerLensAstigmatism(lensField: unknown): AstigmatismSummaryItem[] {
+  if (!Array.isArray(lensField) || lensField.length === 0) return [];
+  const first = lensField[0];
+  if (Array.isArray(first)) {
+    return lensField as AstigmatismSummaryItem[];
+  }
+  return [lensField as AstigmatismSummaryItem];
 }
 
 function createOrientedLineObject(
@@ -1279,9 +1296,9 @@ export class ScaxWc extends LitElement {
       : [];
     const astigmatism: SimulationResultInfo['astigmatism'] | undefined =
       simulationResult?.info?.astigmatism;
-    const lensAstigmatism: AstigmatismSummaryItem[] = Array.isArray(astigmatism?.lens)
-      ? (astigmatism?.lens ?? [])
-      : [];
+    // Engine types `astigmatism.lens` as one summary array; runtime is either that shape for a single
+    // lens, or an array of summaries when multiple lenses exist.
+    const lensAstigmatism: AstigmatismSummaryItem[] = normalizePerLensAstigmatism(astigmatism?.lens);
     const eyeAstigmatism: AstigmatismSummaryItem = Array.isArray(astigmatism?.eye)
       ? (astigmatism?.eye ?? [])
       : [];
@@ -1410,10 +1427,10 @@ export class ScaxWc extends LitElement {
     );
     const [eyeWeakMeridian, eyeStrongMeridian] = sortMeridiansByPowerStrength(eyeMeridians);
     const eyeWeakAxisRaw = Number.isFinite(Number(eyeWeakMeridian?.tabo))
-      ? engineMeridianDeg(Number(eyeWeakMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(eyeWeakMeridian?.tabo))
       : normalizeAxis180(baseCorneaAxis);
     const eyeStrongFromTabo = Number.isFinite(Number(eyeStrongMeridian?.tabo))
-      ? engineMeridianDeg(Number(eyeStrongMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(eyeStrongMeridian?.tabo))
       : normalizeAxis180(eyeWeakAxisRaw + 90);
     const eyeWeakAxis = normalizeAxis180(eyeWeakAxisRaw);
     const eyeStrongAxis =
@@ -1431,10 +1448,10 @@ export class ScaxWc extends LitElement {
     const [combinedWeakMeridian, combinedStrongMeridian] =
       sortMeridiansByPowerStrength(combinedMeridians);
     const combinedWeakAxisRaw = Number.isFinite(Number(combinedWeakMeridian?.tabo))
-      ? engineMeridianDeg(Number(combinedWeakMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedWeakMeridian?.tabo))
       : activeCorneaAxisFromSturm;
     const combinedStrongFromTabo = Number.isFinite(Number(combinedStrongMeridian?.tabo))
-      ? engineMeridianDeg(Number(combinedStrongMeridian?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedStrongMeridian?.tabo))
       : normalizeAxis180(combinedWeakAxisRaw + 90);
     const combinedWeakAxis = normalizeAxis180(combinedWeakAxisRaw);
     const combinedStrongAxis =
@@ -1527,7 +1544,7 @@ export class ScaxWc extends LitElement {
       );
       for (const part of parts) {
         const axisDeg = Number.isFinite(Number(simWeakMeridian?.tabo))
-          ? engineMeridianDeg(Number(simWeakMeridian?.tabo))
+          ? clinicalTaboToSceneMeridianDeg(Number(simWeakMeridian?.tabo))
           : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
         const effectiveLensWeakAxis = normalizeAxis180(axisDeg);
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
@@ -1918,10 +1935,10 @@ export class ScaxWc extends LitElement {
     );
     const [combinedWeak, combinedStrong] = sortMeridiansByPowerStrength(combinedMeridians);
     const weakAxisDeg = Number.isFinite(Number(combinedWeak?.tabo))
-      ? engineMeridianDeg(Number(combinedWeak?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedWeak?.tabo))
       : 90;
     const strongAxisFromTabo = Number.isFinite(Number(combinedStrong?.tabo))
-      ? engineMeridianDeg(Number(combinedStrong?.tabo))
+      ? clinicalTaboToSceneMeridianDeg(Number(combinedStrong?.tabo))
       : normalizeAxis180(weakAxisDeg + 90);
     const strongAxisDeg =
       combinedMeridians.length >= 2
