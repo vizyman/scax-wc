@@ -2059,21 +2059,23 @@ export class ScaxWc extends LitElement {
       }
 
       if (approxCenterPoint) {
-        const planeSize = corneaDiameterMm;
-        const planeGeometry = new THREE.PlaneGeometry(planeSize, planeSize);
+        const markerRadius = 0.5;
+        const markerGeometry = new THREE.SphereGeometry(markerRadius, 24, 18);
         const rayColor = Number(item?.color);
-        const planeHex = Number.isFinite(rayColor)
+        const markerHex = Number.isFinite(rayColor)
           ? rayColor
           : new THREE.Color(colorTheme.surface.compound as THREE.ColorRepresentation).getHex();
-        const planeMaterial = new THREE.MeshBasicMaterial({
-          color: planeHex,
-          transparent: true,
+        const markerMaterial = new THREE.MeshStandardMaterial({
+          color: markerHex,
+          emissive: markerHex,
+          emissiveIntensity: 0.2,
+          metalness: 0.05,
+          roughness: 0.4,
           side: THREE.DoubleSide,
-          depthWrite: false,
         });
-        const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
-        planeMesh.position.copy(approxCenterPoint);
-        objects.push(planeMesh);
+        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+        marker.position.copy(approxCenterPoint);
+        objects.push(marker);
       }
     }
 
