@@ -224,7 +224,9 @@ export interface ScaxColorTheme {
     aspherical: ScaxColorValue;
   };
   /**
-   * 주경선 색: 각각 TABO 오름차순 1·2번에 매핑. `combined`는 결합 난시 각막선·Sturm에 사용.
+   * 주경선(경선) 색: TABO 오름차순 1·2번 → `first` / `second`.
+   * 결합 난시 각막 **경선** 실선은 `combined` 그대로 매핑.
+   * Sturm **초점선(초선)** 은 같은 `combined` 팔레트이나 경선과 **역매핑**(1번 경선 축 초선 → `second` 색 등).
    * 교차실린더는 `cross_cylinder`만 사용.
    */
   meridian: {
@@ -543,6 +545,17 @@ function resolveSturmApproxMarkerRoleFromEngineColor(
     }
   }
   return bestRole;
+}
+
+/**
+ * Sturm 초점선·근사 마커: `meridian.combined` 경선 색을 쓰되, 결합 주경선과 반대로 매핑.
+ * (`meridianRole` 은 TABO 순 1·2번 **경선** 역할 — 그에 대응하는 초선 표시색은 역쌍.)
+ */
+function combinedColorForSturmFocalLine(
+  meridianRole: 'first' | 'second',
+  theme: ScaxColorTheme,
+): ScaxColorValue {
+  return meridianRole === 'first' ? theme.meridian.combined.second : theme.meridian.combined.first;
 }
 
 function createOrientedLineObject(
@@ -2042,9 +2055,6 @@ export class ScaxWc extends LitElement {
         ? enforcePerpendicularMeridianPair(firstAxisDeg, secondAxisFromTabo)
         : secondAxisFromTabo;
 
-    const firstMeridianColor = colorTheme.meridian.combined.first;
-    const secondMeridianColor = colorTheme.meridian.combined.second;
-
     for (let sturmIndex = 0; sturmIndex < sturmInfo.length; sturmIndex += 1) {
       const item = sturmInfo[sturmIndex];
       const approxCenterPoint = toFinitePoint(item?.approx_center);
@@ -2080,9 +2090,8 @@ export class ScaxWc extends LitElement {
           computedRole = slot === nearestSlot ? 'second' : 'first';
         }
 
-        // Sturm만: `meridian.combined` first/second를 표시 시 한 번 뒤짐 (각막 결합선과 반대 순서)
-        const color =
-          computedRole === 'first' ? secondMeridianColor : firstMeridianColor;
+        // 초선: combined 경선 색이나 역매핑 (위 `computedRole` 은 경선 1·2번 축 정렬)
+        const color = combinedColorForSturmFocalLine(computedRole, colorTheme);
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
@@ -2111,17 +2120,15 @@ export class ScaxWc extends LitElement {
     return objects;
   }
 
-  /** Sturm 근사 마커: `combined` 팔레트, 초점선과 같이 first/second 표시만 반대로 */
+  /** Sturm 근사 마커: 엔진 색이 가리키는 경선 역할에 대해 초선과 동일한 combined 역매핑 */
   private sturmApproxMarkerHexFromRole(
     role: 'first' | 'second' | 'compound',
     colorTheme: ScaxColorTheme,
   ): number {
     const raw =
-      role === 'first'
-        ? colorTheme.meridian.combined.second
-        : role === 'second'
-          ? colorTheme.meridian.combined.first
-          : colorTheme.surface.compound;
+      role === 'first' || role === 'second'
+        ? combinedColorForSturmFocalLine(role, colorTheme)
+        : colorTheme.surface.compound;
     return typeof raw === 'number' ? raw : new THREE.Color(raw).getHex();
   }
 
