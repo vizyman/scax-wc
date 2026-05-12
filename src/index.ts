@@ -248,10 +248,12 @@ export interface ScaxColorTheme {
     aspherical: ScaxColorValue;
   };
   /**
-   * 주경선(경선) 색: TABO 오름차순 1·2번 → `first` / `second`.
-   * 결합 난시 각막 **경선** 실선은 `combined` 그대로 매핑.
-   * Sturm **초점선(초선)** 은 같은 `combined` 팔레트이나 경선과 **역매핑**(1번 경선 축 초선 → `second` 색 등).
-   * 교차실린더 렌즈: 광학 주경선은 `meridian.lens`, JCC +/−·이등분선은 `cross_cylinder`만 사용.
+   * 주경선(경선) 색 `first` / `second`:
+   * - **결합(`combined`)**·**안구(`eye`)**: `d<0→60+d`, `d≥0→60-d` 키 **내림차순**(6m 환산 규칙) 1·2번.
+   * - **렌즈(`lens`)**: TABO [0,180) **오름차순** 1·2번.
+   * Sturm **초선**: `z` **내림차순**(앞쪽=큰 z 먼저)으로 **second → first** 팔레트 순으로 칠함
+   * (첫 번째 초선에 `combined.second`, 둘째에 `combined.first`).
+   * 교차실린더: 광학 주경선은 `meridian.lens`, JCC +/−·이등분선은 `cross_cylinder`만 사용.
    */
   meridian: {
     eye: { first: ScaxColorValue; second: ScaxColorValue };
@@ -637,17 +639,6 @@ function computeCrossCylinderPlusMinusSceneAxes(
         : normalizeAxis180(configuredSceneAxis + 90);
   }
   return { plusAxis: normalizeAxis180(plusAxis), minusAxis: normalizeAxis180(minusAxis) };
-}
-
-/**
- * Sturm 초점선·근사 마커: `meridian.combined` 경선 색을 쓰되, 결합 주경선과 반대로 매핑.
- * (`meridianRole` 은 TABO 순 1·2번 **경선** 역할 — 그에 대응하는 초선 표시색은 역쌍.)
- */
-function combinedColorForSturmFocalLine(
-  meridianRole: 'first' | 'second',
-  theme: ScaxColorTheme,
-): ScaxColorValue {
-  return meridianRole === 'first' ? theme.meridian.combined.second : theme.meridian.combined.first;
 }
 
 function createOrientedLineObject(
@@ -1620,7 +1611,7 @@ export class ScaxWc extends LitElement {
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
     const [combinedFirstMeridian, combinedSecondMeridian] =
-      sortMeridiansByTaboAscending(combinedMeridians);
+      sortEyeMeridiansBySixtyMinusDiopterDesc(combinedMeridians);
     const combinedFirstAxisRaw = Number.isFinite(Number(combinedFirstMeridian?.tabo))
       ? clinicalTaboToSceneMeridianDeg(Number(combinedFirstMeridian?.tabo))
       : activeCorneaAxisFromSturm;
@@ -1693,7 +1684,7 @@ export class ScaxWc extends LitElement {
       this.scene.add(object);
     }
 
-    this.sturmObjects = this.buildSturmObject(sturmInfo, combinedAstigmatism);
+    this.sturmObjects = this.buildSturmObject(sturmInfo);
     for (const object of this.sturmObjects) {
       this.scene.add(object);
     }
@@ -2072,27 +2063,15 @@ export class ScaxWc extends LitElement {
     this.controls?.update();
   }
 
-  private buildSturmObject(
-    sturmInfo: SturmInfoLike[],
-    combinedAstigmatism: AstigmatismSummaryItem,
-  ): THREE.Object3D[] {
+  private buildSturmObject(sturmInfo: SturmInfoLike[]): THREE.Object3D[] {
     const colorTheme = this.getColorTheme();
     const objects: THREE.Object3D[] = [];
     const corneaDiameterMm = 11.6;
-    const combinedMeridians = combinedAstigmatism.filter(
-      (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
-    );
-    const [combinedFirst, combinedSecond] = sortMeridiansByTaboAscending(combinedMeridians);
-    const firstAxisDeg = Number.isFinite(Number(combinedFirst?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(combinedFirst?.tabo))
-      : 90;
-    const secondAxisFromTabo = Number.isFinite(Number(combinedSecond?.tabo))
-      ? clinicalTaboToSceneMeridianDeg(Number(combinedSecond?.tabo))
-      : normalizeAxis180(firstAxisDeg + 90);
-    const secondAxisDeg =
-      combinedMeridians.length >= 2
-        ? enforcePerpendicularMeridianPair(firstAxisDeg, secondAxisFromTabo)
-        : secondAxisFromTabo;
+    /** z 내림차순으로 정렬된 초선에 대해 적용할 combined 팔레트 순서: second → first */
+    const sturmFocalLineColors: [ScaxColorValue, ScaxColorValue] = [
+      colorTheme.meridian.combined.second,
+      colorTheme.meridian.combined.first,
+    ];
 
     for (let sturmIndex = 0; sturmIndex < sturmInfo.length; sturmIndex += 1) {
       const item = sturmInfo[sturmIndex];
@@ -2110,12 +2089,12 @@ export class ScaxWc extends LitElement {
           if (!profile || !center || !Number.isFinite(angleDeg)) return null;
           return { slot, center };
         })
-        .filter((item): item is { slot: number; center: THREE.Vector3 } => Boolean(item))
+        .filter((entry): entry is { slot: number; center: THREE.Vector3 } => Boolean(entry))
         .sort((a, b) => b.center.z - a.center.z);
-      const roleBySlot = new Map<number, 'first' | 'second'>();
+      const colorBySlot = new Map<number, ScaxColorValue>();
       for (let orderIndex = 0; orderIndex < drawableSlots.length; orderIndex += 1) {
-        const role: 'first' | 'second' = orderIndex % 2 === 0 ? 'first' : 'second';
-        roleBySlot.set(drawableSlots[orderIndex].slot, role);
+        const color = sturmFocalLineColors[orderIndex] ?? sturmFocalLineColors[0];
+        colorBySlot.set(drawableSlots[orderIndex].slot, color);
       }
 
       for (let slot = 0; slot < 2; slot += 1) {
@@ -2124,11 +2103,7 @@ export class ScaxWc extends LitElement {
         const angleDeg = Number(profile?.angleMajorDeg);
         if (!profile || !center || !Number.isFinite(angleDeg)) continue;
         if (!item.has_astigmatism) continue;
-        // 초선은 z 큰 순서(내림차순)로 first/second 역할을 부여해 경선 색과 매핑한다.
-        const computedRole = roleBySlot.get(slot) ?? 'first';
-
-        // 초선: combined 경선 색이나 역매핑 (위 `computedRole` 은 경선 1·2번 축 정렬)
-        const color = combinedColorForSturmFocalLine(computedRole, colorTheme);
+        const color = colorBySlot.get(slot) ?? sturmFocalLineColors[0];
         objects.push(createOrientedLineObject(center, angleDeg, corneaDiameterMm, color));
       }
 
