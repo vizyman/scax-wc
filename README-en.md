@@ -218,10 +218,110 @@ Legacy JSON: `weak` / `strong` under each group merge into `first` / `second`. O
 
 ### Events
 
-- `simulation-complete`
-  - Fired after simulation pipeline and scene rebuild complete.
-  - `event.detail.simulationResult`: latest `simulate()` result
-  - `event.detail.sturmResult`: latest Sturm calculation result
+#### `simulation-complete`
+
+| | |
+| --- | --- |
+| Event name string | `simulation-complete` |
+| Package constant | `SCAX_SIMULATION_COMPLETE_EVENT` (`'simulation-complete'`) |
+| DOM event type | `CustomEvent<ScaxSimulationCompleteDetail>` |
+| Propagation | `bubbles: true`, `composed: true` (bubbles out of Shadow DOM) |
+
+When it fires: immediately after the internal simulation pipeline and Three.js scene rebuild finish.
+
+#### `event.detail`: `ScaxSimulationCompleteDetail`
+
+Import the type and constant from `scax-wc`:
+
+```ts
+import {
+  SCAX_SIMULATION_COMPLETE_EVENT,
+  type ScaxSimulationCompleteDetail,
+} from 'scax-wc';
+```
+
+Shape:
+
+```ts
+interface ScaxSimulationCompleteDetail {
+  /** Result of `engine.simulate()`. May be `null` before the first successful run. */
+  simulationResult: SimulateResult | null;
+  /** Result of `engine.sturmCalculation(...)`. Also nullable. */
+  sturmResult: SturmResult | null;
+}
+```
+
+Payload types are defined in **`scax-engine`** (`SimulateResult` and `SturmResult` are re-exported from `scax-wc`).
+
+- **`SimulateResult`**
+
+```ts
+import type { SimulateResult } from 'scax-wc'; // or `scax-engine`
+
+type SimulateResult = {
+  /** Traced rays; each entry is a `Ray` instance from `scax-engine` (uses `three` `Vector3`, etc.). */
+  traced_rays: import('scax-engine').Ray[];
+};
+```
+
+- **`SturmResult`** — same as the return type of `Sturm#calculate()`. Field-level overview (see `scax-engine` Sturm analysis for semantics):
+
+```ts
+import type { SturmResult } from 'scax-wc'; // or `scax-engine`
+
+type FraunhoferLine = 'g' | 'F' | 'e' | 'd' | 'C' | 'r';
+
+type SturmSlice = {
+  z: number;
+  depth: number;
+  ratio: number;
+  size: number;
+  profile: {
+    at: { x: number; y: number; z: number };
+    wMajor: number;
+    wMinor: number;
+    angleMajorDeg: number;
+    /** Astigmatic phasor in double-angle space (cos 2θ, sin 2θ); θ = meridian angle (rad) */
+    j0: number;
+    j45: number;
+    angleMinorDeg: number;
+    majorDirection: { x: number; y: number; z: number };
+    minorDirection: { x: number; y: number; z: number };
+  };
+};
+
+type SturmResult = {
+  slices_info: { count: number; slices: SturmSlice[] };
+  sturm_info: {
+    has_astigmatism: boolean;
+    method: string;
+    anterior: SturmSlice;
+    posterior: SturmSlice | null;
+    approx_center: { x: number; y: number; z: number; mode: string } | null;
+    line: FraunhoferLine;
+    wavelength_nm: number;
+    color: number | null;
+    ray_count: number;
+    analysis_axis: { x: number; y: number; z: number };
+  }[];
+};
+```
+
+#### Typed listener example
+
+```ts
+import {
+  SCAX_SIMULATION_COMPLETE_EVENT,
+  type ScaxSimulationCompleteDetail,
+} from 'scax-wc';
+
+const el = document.querySelector('scax-wc');
+el?.addEventListener(SCAX_SIMULATION_COMPLETE_EVENT, (ev: Event) => {
+  const { detail } = ev as CustomEvent<ScaxSimulationCompleteDetail>;
+  const { simulationResult, sturmResult } = detail;
+  // simulationResult?.traced_rays, sturmResult?.sturm_info, etc.
+});
+```
 
 ## Development
 

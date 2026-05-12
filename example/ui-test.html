@@ -50,7 +50,7 @@
     <div id="hud">Loading...</div>
   </div>
 
-  <script src="https://unpkg.com/scax-engine@0.1.0/dist/scax-engine.umd.js"></script>
+  <script src="https://unpkg.com/scax-engine@0.2.0-beta.2/dist/scax-engine.umd.js"></script>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -954,7 +954,15 @@
           lens: lensConfigs,
           light_source: buildLightSourceConfig(uiState),
         });
-        const eyeRotationForRender = engine.getEyeRotation();
+        const prRot = engine.calculateEyeRotationByPrism({
+          p: uiState.eyeP,
+          p_ax: uiState.eyePAx,
+        });
+        const eyeRotationForRender = {
+          x_deg: prRot.x,
+          y_deg: prRot.y,
+          magnitude_deg: Math.hypot(prRot.x, prRot.y),
+        };
 
         const surfaces = []
           .concat(engine.lens || [])

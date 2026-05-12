@@ -4,13 +4,24 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   SCAXEngine,
-  type AstigmatismSummaryItem,
+  type MeridianInfo,
+  type SCAXPower,
   type SCAXEngineProps,
   type SimulateResult,
-  type SimulationResultInfo,
+  type SturmResult,
 } from 'scax-engine';
 
-export type { SimulateResult, SimulationResultInfo } from 'scax-engine';
+type AstigmatismSummaryItem = MeridianInfo;
+
+export interface SimulationResultInfo {
+  astigmatism: {
+    eye: AstigmatismSummaryItem;
+    lens: AstigmatismSummaryItem | AstigmatismSummaryItem[];
+    combined: AstigmatismSummaryItem;
+  };
+}
+
+export type { MeridianInfo, PrismPower, SCAXPower, SimulateResult, SturmResult } from 'scax-engine';
 
 const TAG = '[scax-wc]';
 
@@ -67,9 +78,22 @@ export type CameraStateInput = {
 
 export const SCAX_SIMULATION_COMPLETE_EVENT = 'simulation-complete';
 
+/** `simulation-complete` 이벤트의 주경선 요약 (`SCAXEngine#calculateMeridians`). */
+export interface ScaxSimulationMeridians {
+  /** 안구 `eye`의 S/C/AX만으로 계산한 TABO 주경선 페어. */
+  eye: MeridianInfo;
+  /** 안구와 렌즈 배열 전체의 S/C/AX를 함께 넣어 계산한 결합 주경선. */
+  combined: MeridianInfo;
+  /** `type`이 `cross-cylinder`가 아닌 렌즈들의 S/C/AX만 합성한 주경선(안구 제외). */
+  lens: MeridianInfo;
+  /** `type`이 `cross-cylinder`인 렌즈들의 S/C/AX만 합성한 주경선(안구 제외). */
+  'cross-cylinder': MeridianInfo;
+}
+
 export interface ScaxSimulationCompleteDetail {
-  simulationResult: unknown;
-  sturmResult: unknown;
+  simulationResult: SimulateResult | null;
+  sturmResult: SturmResult | null;
+  meridians: ScaxSimulationMeridians;
 }
 
 function isCameraProjection(value: unknown): value is CameraProjection {
@@ -227,7 +251,7 @@ export interface ScaxColorTheme {
    * 주경선(경선) 색: TABO 오름차순 1·2번 → `first` / `second`.
    * 결합 난시 각막 **경선** 실선은 `combined` 그대로 매핑.
    * Sturm **초점선(초선)** 은 같은 `combined` 팔레트이나 경선과 **역매핑**(1번 경선 축 초선 → `second` 색 등).
-   * 교차실린더는 `cross_cylinder`만 사용.
+   * 교차실린더 렌즈: 광학 주경선은 `meridian.lens`, JCC +/−·이등분선은 `cross_cylinder`만 사용.
    */
   meridian: {
     eye: { first: ScaxColorValue; second: ScaxColorValue };
@@ -365,12 +389,29 @@ export function parseColorAttribute(raw: string | null): ScaxColorTheme {
 
 const CORNEA_MERIDIAN_ANTERIOR_OFFSET_MM = -0.25;
 const LENS_MERIDIAN_ANTERIOR_OFFSET_MM = -0.2;
-/** 안구 회전점(각막 정점 기준 광축 방향 mm) — 엔진 `getEyeRotation`과 동일 기준 */
+/** 안구 회전점(각막 정점 기준 광축 방향 mm) — 렌더 그룹 피벗 */
 const EYE_ROTATION_PIVOT_FROM_CORNEA_MM = 13;
 
 interface EyeRotationForRenderLike {
   x_deg?: unknown;
   y_deg?: unknown;
+}
+
+/** `scax-engine` 0.2.x: `getEyeRotation` 제거 → 프리즘에 의한 회전은 `calculateEyeRotationByPrism` 사용 */
+function resolveEyeRotationForRender(
+  engine: SCAXEngine,
+  config: ScaxRenderConfig,
+): EyeRotationForRenderLike | null {
+  const eye = config.eye;
+  const p = Number(eye?.p ?? 0);
+  const p_ax = Number(eye?.p_ax ?? 0);
+  if (!Number.isFinite(p) || !Number.isFinite(p_ax)) return null;
+  const { x, y } = engine.calculateEyeRotationByPrism({ p, p_ax });
+  if (!Number.isFinite(x) && !Number.isFinite(y)) return null;
+  return {
+    x_deg: Number.isFinite(x) ? x : 0,
+    y_deg: Number.isFinite(y) ? y : 0,
+  };
 }
 
 function applyEyeRenderRotation(
@@ -520,13 +561,82 @@ function clinicalTaboToSceneMeridianDeg(taboDeg: number): number {
   return normalizeAxis180(-v);
 }
 
-function normalizePerLensAstigmatism(lensField: unknown): AstigmatismSummaryItem[] {
-  if (!Array.isArray(lensField) || lensField.length === 0) return [];
-  const first = lensField[0];
-  if (Array.isArray(first)) {
-    return lensField as AstigmatismSummaryItem[];
+function toFinitePower(power: Partial<SCAXPower> | null | undefined): SCAXPower {
+  const s = Number(power?.s);
+  const c = Number(power?.c);
+  const ax = Number(power?.ax);
+  return {
+    s: Number.isFinite(s) ? s : 0,
+    c: Number.isFinite(c) ? c : 0,
+    ax: Number.isFinite(ax) ? ax : 0,
+  };
+}
+
+function buildAstigmatismSummaries(
+  engine: SCAXEngine,
+  config: ScaxRenderConfig,
+): {
+  eyeAstigmatism: AstigmatismSummaryItem;
+  lensAstigmatism: AstigmatismSummaryItem[];
+  combinedAstigmatism: AstigmatismSummaryItem;
+  meridians: ScaxSimulationMeridians;
+} {
+  const eyePower = toFinitePower(config.eye ?? null);
+  const lensConfigs = Array.isArray(config.lens) ? config.lens : [];
+  const lensPowers = lensConfigs.map((lens) => toFinitePower(lens));
+  const nonCrossCylinderPowers = lensConfigs
+    .filter((lens) => lens.type !== 'cross-cylinder')
+    .map((lens) => toFinitePower(lens));
+  const crossCylinderPowers = lensConfigs
+    .filter((lens) => lens.type === 'cross-cylinder')
+    .map((lens) => toFinitePower(lens));
+
+  const eyeAstigmatism = engine.calculateMeridians([eyePower]);
+  const lensAstigmatism = lensPowers.map((lensPower) => engine.calculateMeridians([lensPower]));
+  const combinedAstigmatism = engine.calculateMeridians([eyePower, ...lensPowers]);
+
+  const meridians: ScaxSimulationMeridians = {
+    eye: eyeAstigmatism,
+    combined: combinedAstigmatism,
+    lens: engine.calculateMeridians(nonCrossCylinderPowers),
+    'cross-cylinder': engine.calculateMeridians(crossCylinderPowers),
+  };
+
+  return { eyeAstigmatism, lensAstigmatism, combinedAstigmatism, meridians };
+}
+
+/**
+ * 교차실린더 시각화용 +/− 주경선: 엔진 `calculateMeridians`와 별도로, 처방 S/C/AX만으로
+ * 장면 각도(도)를 정합니다. (JCC 플러스·마이너스 축 표시)
+ */
+function computeCrossCylinderPlusMinusSceneAxes(
+  lensConfig: LensRenderConfig | null,
+  surfaceAxDegFallback: number,
+): { plusAxis: number; minusAxis: number } {
+  const configuredAxisDeg = Number(lensConfig?.ax ?? surfaceAxDegFallback);
+  const configuredSceneAxis = clinicalTaboToSceneMeridianDeg(configuredAxisDeg);
+  const configuredAxisPower = Number(lensConfig?.s ?? 0);
+  const configuredOrthogonalPower = configuredAxisPower + Number(lensConfig?.c ?? 0);
+  const axisHasPlus = configuredAxisPower > 0;
+  const orthogonalHasPlus = configuredOrthogonalPower > 0;
+  const axisHasMinus = configuredAxisPower < 0;
+  const orthogonalHasMinus = configuredOrthogonalPower < 0;
+  let plusAxis: number;
+  let minusAxis: number;
+  if (axisHasPlus !== orthogonalHasPlus && axisHasMinus !== orthogonalHasMinus) {
+    plusAxis = axisHasPlus ? configuredSceneAxis : normalizeAxis180(configuredSceneAxis + 90);
+    minusAxis = axisHasMinus ? configuredSceneAxis : normalizeAxis180(configuredSceneAxis + 90);
+  } else {
+    plusAxis =
+      configuredAxisPower >= configuredOrthogonalPower
+        ? configuredSceneAxis
+        : normalizeAxis180(configuredSceneAxis + 90);
+    minusAxis =
+      configuredAxisPower < configuredOrthogonalPower
+        ? configuredSceneAxis
+        : normalizeAxis180(configuredSceneAxis + 90);
   }
-  return [lensField as AstigmatismSummaryItem];
+  return { plusAxis: normalizeAxis180(plusAxis), minusAxis: normalizeAxis180(minusAxis) };
 }
 
 /**
@@ -1211,8 +1321,8 @@ export class ScaxWc extends LitElement {
   private sturmObjects: THREE.Object3D[] = [];
   private meridianObjects: THREE.Object3D[] = [];
   private hasInitialCameraFit = false;
-  private lastSimulationResult: unknown = null;
-  private lastSturmResult: unknown = null;
+  private lastSimulationResult: SimulateResult | null = null;
+  private lastSturmResult: SturmResult | null = null;
 
   render() {
     return html` <div id="canvas-root"></div> `;
@@ -1330,15 +1440,16 @@ export class ScaxWc extends LitElement {
       simulationData.lensAstigmatism,
       simulationData.combinedAstigmatism,
     );
-    this.dispatchSimulationCompleteEvent();
+    this.dispatchSimulationCompleteEvent(simulationData.meridians);
   }
 
-  private dispatchSimulationCompleteEvent(): void {
+  private dispatchSimulationCompleteEvent(meridians: ScaxSimulationMeridians): void {
     this.dispatchEvent(
       new CustomEvent<ScaxSimulationCompleteDetail>(SCAX_SIMULATION_COMPLETE_EVENT, {
         detail: {
           simulationResult: this.lastSimulationResult,
           sturmResult: this.lastSturmResult,
+          meridians,
         },
         bubbles: true,
         composed: true,
@@ -1353,6 +1464,7 @@ export class ScaxWc extends LitElement {
     eyeAstigmatism: AstigmatismSummaryItem;
     lensAstigmatism: AstigmatismSummaryItem[];
     combinedAstigmatism: AstigmatismSummaryItem;
+    meridians: ScaxSimulationMeridians;
   } | null {
     if (!this.engine) return null;
     const simulationResult: SimulateResult = this.engine.simulate();
@@ -1360,24 +1472,13 @@ export class ScaxWc extends LitElement {
     const tracedRays = Array.isArray(simulationResult?.traced_rays)
       ? simulationResult.traced_rays
       : [];
-    const sturmResult = this.engine.sturmCalculation(tracedRays);
+    const sturmResult: SturmResult = this.engine.sturmCalculation(tracedRays);
     this.lastSturmResult = sturmResult;
-    const sturmInfo = Array.isArray((sturmResult as { sturm_info?: unknown[] } | null)?.sturm_info)
-      ? ((sturmResult as { sturm_info?: unknown[] }).sturm_info as SturmInfoLike[])
+    const sturmInfo = Array.isArray(sturmResult.sturm_info)
+      ? (sturmResult.sturm_info as SturmInfoLike[])
       : [];
-    const astigmatism: SimulationResultInfo['astigmatism'] | undefined =
-      simulationResult?.info?.astigmatism;
-    // Engine types `astigmatism.lens` as one summary array; runtime is either that shape for a single
-    // lens, or an array of summaries when multiple lenses exist.
-    const lensAstigmatism: AstigmatismSummaryItem[] = normalizePerLensAstigmatism(
-      astigmatism?.lens,
-    );
-    const eyeAstigmatism: AstigmatismSummaryItem = Array.isArray(astigmatism?.eye)
-      ? (astigmatism?.eye ?? [])
-      : [];
-    const combinedAstigmatism: AstigmatismSummaryItem = Array.isArray(astigmatism?.combined)
-      ? (astigmatism?.combined ?? [])
-      : [];
+    const { eyeAstigmatism, lensAstigmatism, combinedAstigmatism, meridians } =
+      buildAstigmatismSummaries(this.engine, this.config);
     // traced ray의 첫 점은 엔진의 광원 pose(position/tilt)가 반영된 실제 발광 위치입니다.
     const sourceRays = tracedRays;
     return {
@@ -1387,6 +1488,7 @@ export class ScaxWc extends LitElement {
       eyeAstigmatism,
       lensAstigmatism,
       combinedAstigmatism,
+      meridians,
     };
   }
 
@@ -1412,12 +1514,12 @@ export class ScaxWc extends LitElement {
     this.clearSceneObjects(this.meridianObjects);
   }
 
-  public getSimulateResult<T = unknown>(): T | null {
-    return (this.lastSimulationResult as T | null) ?? null;
+  public getSimulateResult(): SimulateResult | null {
+    return this.lastSimulationResult;
   }
 
-  public getSturmResult<T = unknown>(): T | null {
-    return (this.lastSturmResult as T | null) ?? null;
+  public getSturmResult(): SturmResult | null {
+    return this.lastSturmResult;
   }
 
   public setCameraState(state: CameraStateInput): void {
@@ -1552,10 +1654,7 @@ export class ScaxWc extends LitElement {
       colorTheme,
     });
 
-    const eyeRotation =
-      (
-        this.engine as unknown as { getEyeRotation?: () => EyeRotationForRenderLike | null }
-      ).getEyeRotation?.() ?? null;
+    const eyeRotation = resolveEyeRotationForRender(this.engine, this.config);
     const needsEyeRotationGroup = eyeMeshes.length > 0 || Boolean(corneaAstigSurface);
     let eyeRenderGroup: THREE.Group | undefined;
     let eyeGeometryGroup: THREE.Group | undefined;
@@ -1619,67 +1718,52 @@ export class ScaxWc extends LitElement {
       for (const part of parts) {
         const halfLength = Math.max(2.5, estimateSurfaceRadius(part) * 0.9);
 
+        // 렌즈 주경선: `calculateMeridians` 기반 TABO → 장면 각도 (`meridian.lens`)
+        const axisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
+          ? clinicalTaboToSceneMeridianDeg(Number(simFirstMeridian?.tabo))
+          : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
+        const effectiveLensFirstAxis = normalizeAxis180(axisDeg);
+        const secondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
+          ? clinicalTaboToSceneMeridianDeg(Number(simSecondMeridian?.tabo))
+          : normalizeAxis180(effectiveLensFirstAxis + 90);
+        const effectiveLensSecondAxis =
+          simulatedMeridians.length >= 2
+            ? enforcePerpendicularMeridianPair(effectiveLensFirstAxis, secondFromTabo)
+            : normalizeAxis180(secondFromTabo);
+
+        const major = this.createMeridianLine(
+          part,
+          effectiveLensFirstAxis,
+          halfLength,
+          colorTheme.meridian.lens.first,
+          LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
+        const minor = this.createMeridianLine(
+          part,
+          effectiveLensSecondAxis,
+          halfLength,
+          colorTheme.meridian.lens.second,
+          LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
+        );
+        if (major) meridianObjects.push(major);
+        if (minor) meridianObjects.push(minor);
+
+        // 교차실린더: JCC +/− 축·이등분선은 처방(S/C/AX)만으로 계산 (`cross_cylinder` 팔레트)
         if (lensType === 'cross-cylinder') {
-          // 토릭 렌즈 `tabo`는 장면 주경선과 같은 프레임. 교차실린더 요약 `tabo`는 임상 TABO라
-          // clinicalTaboToSceneMeridianDeg로 토릭과 동일한 회전 방향(AX↑ → 반시계)으로 맞춤.
-          const xcFirstAxisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
-            ? clinicalTaboToSceneMeridianDeg(Number(simFirstMeridian?.tabo))
-            : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
-          const effectiveLensFirstAxis = normalizeAxis180(xcFirstAxisDeg);
-          const xcSecondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
-            ? clinicalTaboToSceneMeridianDeg(Number(simSecondMeridian?.tabo))
-            : normalizeAxis180(effectiveLensFirstAxis + 90);
-          const effectiveLensSecondAxis =
-            simulatedMeridians.length >= 2
-              ? enforcePerpendicularMeridianPair(effectiveLensFirstAxis, xcSecondFromTabo)
-              : normalizeAxis180(xcSecondFromTabo);
-
-          let plusAxis: number;
-          let minusAxis: number;
-          const d1 = Number(simFirstMeridian?.d);
-          const d2 = Number(simSecondMeridian?.d);
-          if (simulatedMeridians.length >= 2 && Number.isFinite(d1) && Number.isFinite(d2)) {
-            if (d1 >= d2) {
-              plusAxis = effectiveLensFirstAxis;
-              minusAxis = effectiveLensSecondAxis;
-            } else {
-              plusAxis = effectiveLensSecondAxis;
-              minusAxis = effectiveLensFirstAxis;
-            }
-          } else {
-            const configuredAxisDeg = Number(lensConfig?.ax ?? part.ax ?? surface.ax ?? 0);
-            const configuredSceneAxis = clinicalTaboToSceneMeridianDeg(configuredAxisDeg);
-            const configuredAxisPower = Number(lensConfig?.s ?? 0);
-            const configuredOrthogonalPower = configuredAxisPower + Number(lensConfig?.c ?? 0);
-            const axisHasPlus = configuredAxisPower > 0;
-            const orthogonalHasPlus = configuredOrthogonalPower > 0;
-            const axisHasMinus = configuredAxisPower < 0;
-            const orthogonalHasMinus = configuredOrthogonalPower < 0;
-            if (axisHasPlus !== orthogonalHasPlus && axisHasMinus !== orthogonalHasMinus) {
-              plusAxis = axisHasPlus ? configuredSceneAxis : configuredSceneAxis + 90;
-              minusAxis = axisHasMinus ? configuredSceneAxis : configuredSceneAxis + 90;
-            } else {
-              plusAxis =
-                configuredAxisPower >= configuredOrthogonalPower
-                  ? configuredSceneAxis
-                  : configuredSceneAxis + 90;
-              minusAxis =
-                configuredAxisPower < configuredOrthogonalPower
-                  ? configuredSceneAxis
-                  : configuredSceneAxis + 90;
-            }
-          }
-
+          const { plusAxis, minusAxis } = computeCrossCylinderPlusMinusSceneAxes(
+            lensConfig,
+            Number(part.ax ?? surface.ax ?? 0),
+          );
           const bisectorA = this.createMeridianDashedLine(
             part,
-            plusAxis + 45,
+            normalizeAxis180(plusAxis + 45),
             halfLength,
             colorTheme.cross_cylinder.bisector,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
           );
           const bisectorB = this.createMeridianDashedLine(
             part,
-            plusAxis + 135,
+            normalizeAxis180(plusAxis + 135),
             halfLength,
             colorTheme.cross_cylinder.bisector,
             LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
@@ -1723,7 +1807,7 @@ export class ScaxWc extends LitElement {
           meridianObjects.push(
             ...this.createMeridianEndpointMarkers(
               part,
-              plusAxis + 45,
+              normalizeAxis180(plusAxis + 45),
               halfLength,
               colorTheme.cross_cylinder.bisector,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
@@ -1732,43 +1816,13 @@ export class ScaxWc extends LitElement {
           meridianObjects.push(
             ...this.createMeridianEndpointMarkers(
               part,
-              plusAxis + 135,
+              normalizeAxis180(plusAxis + 135),
               halfLength,
               colorTheme.cross_cylinder.bisector,
               LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
             ),
           );
-          continue;
         }
-
-        const axisDeg = Number.isFinite(Number(simFirstMeridian?.tabo))
-          ? clinicalTaboToSceneMeridianDeg(Number(simFirstMeridian?.tabo))
-          : engineMeridianDeg(Number(part.ax ?? surface.ax ?? 0));
-        const effectiveLensFirstAxis = normalizeAxis180(axisDeg);
-        const secondFromTabo = Number.isFinite(Number(simSecondMeridian?.tabo))
-          ? clinicalTaboToSceneMeridianDeg(Number(simSecondMeridian?.tabo))
-          : normalizeAxis180(effectiveLensFirstAxis + 90);
-        const effectiveLensSecondAxis =
-          simulatedMeridians.length >= 2
-            ? enforcePerpendicularMeridianPair(effectiveLensFirstAxis, secondFromTabo)
-            : normalizeAxis180(secondFromTabo);
-
-        const major = this.createMeridianLine(
-          part,
-          effectiveLensFirstAxis,
-          halfLength,
-          colorTheme.meridian.lens.first,
-          LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
-        );
-        const minor = this.createMeridianLine(
-          part,
-          effectiveLensSecondAxis,
-          halfLength,
-          colorTheme.meridian.lens.second,
-          LENS_MERIDIAN_ANTERIOR_OFFSET_MM,
-        );
-        if (major) meridianObjects.push(major);
-        if (minor) meridianObjects.push(minor);
       }
     }
 

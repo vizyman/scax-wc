@@ -232,10 +232,128 @@ if (el) {
 
 ### 이벤트
 
-- `simulation-complete`
-  - 시뮬레이션 파이프라인과 씬 재구성이 끝난 뒤 발생합니다.
-  - `event.detail.simulationResult`: 최신 `simulate()` 결과
-  - `event.detail.sturmResult`: 최신 Sturm 계산 결과
+#### `simulation-complete`
+
+| 항목 | 값 |
+| --- | --- |
+| 이벤트 이름 문자열 | `simulation-complete` |
+| 패키지 상수 | `SCAX_SIMULATION_COMPLETE_EVENT` (`'simulation-complete'`) |
+| DOM 이벤트 타입 | `CustomEvent<ScaxSimulationCompleteDetail>` |
+| 전파 | `bubbles: true`, `composed: true` (Shadow DOM 바깥으로도 버블링) |
+
+발생 시점: 내부 시뮬레이션 파이프라인과 Three.js 씬 재구성이 모두 끝난 직후.
+
+#### `event.detail`: `ScaxSimulationCompleteDetail`
+
+`scax-wc` 패키지에서 타입과 상수를 가져와 쓸 수 있습니다.
+
+```ts
+import {
+  SCAX_SIMULATION_COMPLETE_EVENT,
+  type ScaxSimulationCompleteDetail,
+  type ScaxSimulationMeridians,
+} from 'scax-wc';
+```
+
+구조 요약:
+
+```ts
+interface ScaxSimulationMeridians {
+  /** 안구 `eye`의 S/C/AX만으로 계산한 TABO 주경선 페어 (`calculateMeridians`). */
+  eye: MeridianInfo;
+  /** 안구 + 렌즈 전체의 S/C/AX 결합 주경선. */
+  combined: MeridianInfo;
+  /** `type`이 `cross-cylinder`가 아닌 렌즈들만 모아 합성한 주경선(안구 제외). `type` 생략은 일반 렌즈로 간주합니다. */
+  lens: MeridianInfo;
+  /** `type`이 `cross-cylinder`인 렌즈들만 모아 합성한 주경선(안구 제외). */
+  'cross-cylinder': MeridianInfo;
+}
+
+interface ScaxSimulationCompleteDetail {
+  /** `engine.simulate()` 결과. 최초 업데이트 전 등은 `null`일 수 있습니다. */
+  simulationResult: SimulateResult | null;
+  /** `engine.sturmCalculation(...)` 결과. 동일하게 `null`일 수 있습니다. */
+  sturmResult: SturmResult | null;
+  /** 주경선 요약. 이벤트가 발생할 때마다 최신 시뮬레이션 설정 기준으로 채워집니다. */
+  meridians: ScaxSimulationMeridians;
+}
+```
+
+`MeridianInfo`는 **`scax-engine`**과 동일하게 `{ tabo: number; d: number }[]` 입니다(TABO 각도와 해당 주경선 도수, 난시 요약은 도수 오름차순 정렬).
+
+
+`simulationResult`, `sturmResult` 본문 타입은 **`scax-engine`**에서 정의됩니다 (`scax-wc`에서 `SimulateResult`, `SturmResult` 타입 재수출).
+
+- **`SimulateResult`** — 엔진 기준 형태는 다음과 같습니다.
+
+```ts
+import type { SimulateResult } from 'scax-wc'; // 또는 `scax-engine`
+
+type SimulateResult = {
+  /** 추적 완료된 광선. 각 요소는 `scax-engine`의 `Ray` 클래스 인스턴스입니다 (`three`의 `Vector3` 등 사용). */
+  traced_rays: import('scax-engine').Ray[];
+};
+```
+
+- **`SturmResult`** — `Sturm` 클래스의 `calculate()` 반환 타입과 동일합니다. 개략적인 필드 형태는 아래와 같습니다(세부 숫자 의미는 `scax-engine` Sturm 분석 참고).
+
+```ts
+import type { SturmResult } from 'scax-wc'; // 또는 `scax-engine`
+
+type FraunhoferLine = 'g' | 'F' | 'e' | 'd' | 'C' | 'r';
+
+type SturmSlice = {
+  z: number;
+  depth: number;
+  ratio: number;
+  size: number;
+  profile: {
+    at: { x: number; y: number; z: number };
+    wMajor: number;
+    wMinor: number;
+    angleMajorDeg: number;
+    /** 이각 공간 난시 phasor (cos 2θ, sin 2θ); θ는 주경선 각(rad) */
+    j0: number;
+    j45: number;
+    angleMinorDeg: number;
+    majorDirection: { x: number; y: number; z: number };
+    minorDirection: { x: number; y: number; z: number };
+  };
+};
+
+type SturmResult = {
+  slices_info: { count: number; slices: SturmSlice[] };
+  sturm_info: {
+    has_astigmatism: boolean;
+    method: string;
+    anterior: SturmSlice;
+    posterior: SturmSlice | null;
+    approx_center: { x: number; y: number; z: number; mode: string } | null;
+    line: FraunhoferLine;
+    wavelength_nm: number;
+    color: number | null;
+    ray_count: number;
+    analysis_axis: { x: number; y: number; z: number };
+  }[];
+};
+```
+
+#### 리스너 예시 (TypeScript)
+
+```ts
+import {
+  SCAX_SIMULATION_COMPLETE_EVENT,
+  type ScaxSimulationCompleteDetail,
+} from 'scax-wc';
+
+const el = document.querySelector('scax-wc');
+el?.addEventListener(SCAX_SIMULATION_COMPLETE_EVENT, (ev: Event) => {
+  const { detail } = ev as CustomEvent<ScaxSimulationCompleteDetail>;
+  const { simulationResult, sturmResult, meridians } = detail;
+  // simulationResult?.traced_rays, sturmResult?.sturm_info,
+  // meridians.eye, meridians.combined, meridians.lens, meridians['cross-cylinder']
+});
+```
 
 ## 개발
 
