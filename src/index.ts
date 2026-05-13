@@ -249,7 +249,7 @@ export interface ScaxColorTheme {
   };
   /**
    * 주경선(경선) 색 `first` / `second`:
-   * - **결합(`combined`)**·**안구(`eye`)**: 엔진 주경선 `d`(부호 포함) **오름차순** 1·2번. 동률이면 TABO 오름차순.
+   * - **결합(`combined`)**·**안구(`eye`)**: `d<0→60+d`, `d≥0→60-d` 키 **내림차순**(6m 환산 규칙) 1·2번.
    * - **렌즈(`lens`)**: TABO [0,180) **오름차순** 1·2번.
    * Sturm **초선**: `z` **내림차순**(앞쪽=큰 z 먼저)으로 **second → first** 팔레트 순으로 칠함
    * (첫 번째 초선에 `combined.second`, 둘째에 `combined.first`).
@@ -508,17 +508,16 @@ function sortMeridiansByTaboAscending<T extends { d?: number; tabo?: number }>(i
   });
 }
 
-/**
- * 결합·안구 주경선 정렬: 주경선 굴절력 **`d` 오름차순**(부호 포함·대수적 비교).
- * 동률이면 TABO [0,180) 오름차순.
- */
-function sortMeridiansByDiopterAscending<T extends { d?: number; tabo?: number }>(items: T[]): T[] {
+/** Eye 경선 정렬: d<0 => 60+d, d>=0 => 60-d 값을 내림차순으로 정렬 */
+function sortEyeMeridiansBySixtyMinusDiopterDesc<T extends { d?: number; tabo?: number }>(
+  items: T[],
+): T[] {
   return [...items].sort((a, b) => {
     const aD = Number(a?.d);
     const bD = Number(b?.d);
-    const aKey = Number.isFinite(aD) ? aD : Infinity;
-    const bKey = Number.isFinite(bD) ? bD : Infinity;
-    if (aKey !== bKey) return aKey - bKey;
+    const aKey = Number.isFinite(aD) ? (aD < 0 ? 60 + Math.abs(aD) : 60 - Math.abs(aD)) : -Infinity;
+    const bKey = Number.isFinite(bD) ? (bD < 0 ? 60 + Math.abs(bD) : 60 - Math.abs(bD)) : -Infinity;
+    if (aKey !== bKey) return bKey - aKey;
 
     const ta = Number(a?.tabo);
     const tb = Number(b?.tabo);
@@ -604,6 +603,8 @@ function buildAstigmatismSummaries(
     lens: engine.calculateMeridians(nonCrossCylinderPowers),
     'cross-cylinder': engine.calculateMeridians(crossCylinderPowers),
   };
+
+  console.log('MERIDIANS : ', meridians);
 
   return { eyeAstigmatism, lensAstigmatism, combinedAstigmatism, meridians };
 }
@@ -1590,11 +1591,8 @@ export class ScaxWc extends LitElement {
     const eyeMeridians = eyeAstigmatism.filter(
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
-    const [eyeFirstMeridian, eyeSecondMeridian] = sortMeridiansByDiopterAscending(eyeMeridians);
-
-    console.log('eyeFirstMeridian', eyeFirstMeridian);
-    console.log('eyeSecondMeridian', eyeSecondMeridian);
-
+    const [eyeFirstMeridian, eyeSecondMeridian] =
+      sortEyeMeridiansBySixtyMinusDiopterDesc(eyeMeridians);
     const eyeFirstAxisRaw = Number.isFinite(Number(eyeFirstMeridian?.tabo))
       ? clinicalTaboToSceneMeridianDeg(Number(eyeFirstMeridian?.tabo))
       : normalizeAxis180(baseCorneaAxis);
@@ -1615,7 +1613,7 @@ export class ScaxWc extends LitElement {
       (item) => Number.isFinite(Number(item?.d)) && Number.isFinite(Number(item?.tabo)),
     );
     const [combinedFirstMeridian, combinedSecondMeridian] =
-      sortMeridiansByDiopterAscending(combinedMeridians);
+      sortEyeMeridiansBySixtyMinusDiopterDesc(combinedMeridians);
     const combinedFirstAxisRaw = Number.isFinite(Number(combinedFirstMeridian?.tabo))
       ? clinicalTaboToSceneMeridianDeg(Number(combinedFirstMeridian?.tabo))
       : activeCorneaAxisFromSturm;
