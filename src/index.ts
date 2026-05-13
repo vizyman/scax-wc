@@ -604,8 +604,6 @@ function buildAstigmatismSummaries(
     'cross-cylinder': engine.calculateMeridians(crossCylinderPowers),
   };
 
-  console.log('MERIDIANS : ', meridians);
-
   return { eyeAstigmatism, lensAstigmatism, combinedAstigmatism, meridians };
 }
 
